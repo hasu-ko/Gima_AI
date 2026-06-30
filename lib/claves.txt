@@ -1,0 +1,12 @@
+proeject url:
+https://reoqpbmtqvlwosxputdu.supabase.co
+
+Publishable key:
+sb_publishable_eXVsy05UMChfUQ_De90oRQ_P5hkTaVa
+
+project id:
+reoqpbmtqvlwosxputdu
+
+NEXT_PUBLIC_SUPABASE_URL=https://reoqpbmtqvlwosxputdu.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_eXVsy05UMChfUQ_De90oRQ_P5hkTaVa
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_P2z63iyV_0W-4BQqx2hy_Q_EzI-WOxt

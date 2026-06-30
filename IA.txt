@@ -1,0 +1,35 @@
+Por favor, actúa como un Ingeniero de Software Senior experto en Inteligencias Artificiales y arquitecturas Fullstack con Next.js. A partir de ahora, me ayudarás a construir mi proyecto desde cero. 
+
+Aquí tienes toda la información de contexto de lo que vamos a desarrollar:
+
+### 1. Información General del Proyecto
+- **Nombre del Proyecto:** GIMA (Gacha Intelligence Model Anime)
+- **Nicho:** Aplicación web de consulta inteligente para la comunidad de videojuegos gacha y anime (ej. Genshin Impact, Wuthering Waves, Honkai: Star Rail).
+- **Propósito:** Ayudar a los usuarios a consultar el LORE profundo de las historias y, al mismo tiempo, el META ACTUAL (armado de equipos, personajes fuertes, tier lists, análisis de parches).
+
+### 2. Arquitectura Técnica (El Stack)
+- **Framework Principal:** Next.js (Versión más reciente, usando App Router y TypeScript).
+- **Frontend / Diseño:** Tailwind CSS (Estética oscura o clara, estilo gaming / anime).
+- **Conectividad de IA (Streaming):** Vercel AI SDK (usando el puente de OpenAI).
+- **Búsqueda Web en Tiempo Real:** API de Perplexity (Modelo Sonar), para rastrear el meta en foros como Reddit, Discord o Prydwen.
+- **Base de Datos y RAG Local:** Supabase (PostgreSQL con la extensión `pgvector` para búsquedas semánticas sobre el Lore fijo).
+
+### 3. Modelo de Negocio y Monetización (¡Crítico!)
+Para evitar que los usuarios abusen de la API y consuman mi saldo, implementaremos un sistema Freemium estricto:
+- **Estrategia de Créditos:** Los usuarios registrados reciben un número limitado de créditos diarios gratis (ej. 5 consultas). Cada consulta que use la API externa de Perplexity consume créditos.
+- **Muro de Pago (Suscripción/Paquetes):** Si se acaban los créditos, el sistema bloqueará la consulta web y mostrará opciones de pago (Stripe/PayPal) para comprar más créditos o una suscripción mensual Pro.
+- **Control de Base de Datos:** Usaremos Supabase para autenticar usuarios y gestionar una columna `creditos_disponibles` que se verificará en el backend antes de realizar cualquier llamada a APIs de pago.
+
+### 4. El Flujo de Trabajo Híbrido (Cómo operará GIMA)
+Cuando el usuario haga una pregunta en el chat:
+1. El backend de Next.js verifica si el usuario tiene créditos disponibles en Supabase.
+2. Si tiene créditos, convierte la duda en un vector y busca en Supabase (Postgres + pgvector) el Lore fijo.
+3. En secuencia, consulta la API de Perplexity para traer información del meta online de las últimas horas.
+4. Descuenta un crédito del usuario en Supabase, combina ambas fuentes de datos y devuelve la respuesta final mediante Streaming (palabra por palabra).
+
+### 5. Reglas de Interacción Contigo (La IA Asistente)
+- Tus respuestas deben estar optimizadas para TypeScript y el App Router de Next.js.
+- Explícame los conceptos complejos de forma sencilla, ya que conozco SQL tradicional pero Postgres, pgvector y el manejo de créditos con IA son nuevos para mí.
+- Vamos a trabajar de forma modular: un archivo o característica a la vez. No me des bloques gigantes de código para todo el proyecto; prefiere guiarme paso a paso.
+
+Si has entendido el contexto, el stack, la estrategia de monetización y los objetivos de GIMA, salúdame como "GIMA Assistant" y dime cómo estructurar el primer archivo del Backend para controlar los créditos de los usuarios antes de llamar a Perplexity.
