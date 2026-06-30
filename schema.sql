@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.perfiles (
     id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
     email TEXT,
     nombre_completo TEXT,
+    avatar_url TEXT,
     fecha_nacimiento DATE,
     creditos_disponibles INTEGER DEFAULT 5 CHECK (creditos_disponibles >= 0),
     ultimo_reset TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
@@ -34,11 +35,12 @@ CREATE POLICY "Los usuarios pueden ver su propio perfil"
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO public.perfiles (id, email, nombre_completo, fecha_nacimiento, creditos_disponibles)
+    INSERT INTO public.perfiles (id, email, nombre_completo, avatar_url, fecha_nacimiento, creditos_disponibles)
     VALUES (
         new.id, 
         new.email, 
         COALESCE((new.raw_user_meta_data->>'nombre_completo')::text, ''),
+        COALESCE((new.raw_user_meta_data->>'avatar_url')::text, ''),
         (new.raw_user_meta_data->>'fecha_nacimiento')::date,
         5 -- Inicia con 5 créditos gratis
     );

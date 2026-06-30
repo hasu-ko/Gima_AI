@@ -6,7 +6,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { 
   Gamepad2, Sparkles, Send, Coins, LogOut, MessageSquare, 
   Search, ShieldAlert, CreditCard, Check, X, RefreshCw, Zap,
-  Plus, Trash2, Menu
+  Plus, Trash2, Menu, Settings, Camera, User, Lock
 } from 'lucide-react';
 
 interface Message {
@@ -24,8 +24,41 @@ interface Conversation {
 
 export default function ChatPage() {
   const router = useRouter();
-  const [user, setUser] = useState<{ id: string; email: string; name: string; isMock?: boolean } | null>(null);
+  const [user, setUser] = useState<{ id: string; email: string; name: string; avatar?: string; isMock?: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Dropdown del usuario
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  
+  // Modal de Ajustes
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newAvatar, setNewAvatar] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  // Cargar estados del modal cuando se abre
+  useEffect(() => {
+    if (showSettingsModal && user) {
+      setNewName(user.name || '');
+      setNewAvatar(user.avatar || '');
+      setNewPassword('');
+      setConfirmPassword('');
+      setSettingsError(null);
+      setSettingsSuccess(null);
+    }
+  }, [showSettingsModal, user]);
+
+  // Cerrar el menú de usuario al hacer click fuera
+  useEffect(() => {
+    if (!showUserMenu) return;
+    const handleCloseMenu = () => setShowUserMenu(false);
+    window.addEventListener('click', handleCloseMenu);
+    return () => window.removeEventListener('click', handleCloseMenu);
+  }, [showUserMenu]);
   
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -80,10 +113,30 @@ export default function ChatPage() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session && session.user) {
+          let profileName = '';
+          let profileAvatar = '';
+          try {
+            const { data: profile } = await supabase
+              .from('perfiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .single();
+
+            if (profile) {
+              profileName = profile.nombre_completo || '';
+              if ('avatar_url' in profile) {
+                profileAvatar = profile.avatar_url || '';
+              }
+            }
+          } catch (e) {
+            console.warn('Error reading from perfiles table:', e);
+          }
+
           const realUser = {
             id: session.user.id,
             email: session.user.email ?? '',
-            name: session.user.email?.split('@')[0] ?? 'Viajero',
+            name: profileName || session.user.user_metadata?.nombre_completo || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Viajero',
+            avatar: profileAvatar || session.user.user_metadata?.avatar_url || '',
             isMock: false
           };
           setUser(realUser);
@@ -260,6 +313,119 @@ export default function ChatPage() {
       }
     } catch (err) {
       console.error('Error al sincronizar créditos:', err);
+    }
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 96;
+        canvas.height = 96;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const size = Math.min(img.width, img.height);
+          const sx = (img.width - size) / 2;
+          const sy = (img.height - size) / 2;
+          ctx.drawImage(img, sx, sy, size, size, 0, 0, 96, 96);
+          const base64 = canvas.toDataURL('image/jpeg', 0.85);
+          setNewAvatar(base64);
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+
+    setSavingSettings(true);
+    setSettingsError(null);
+    setSettingsSuccess(null);
+
+    // Validar contraseñas si el usuario ingresó algo en newPassword
+    if (newPassword) {
+      if (newPassword.length < 6) {
+        setSettingsError('La nueva contraseña debe tener al menos 6 caracteres.');
+        setSavingSettings(false);
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setSettingsError('Las contraseñas no coinciden.');
+        setSavingSettings(false);
+        return;
+      }
+    }
+
+    try {
+      if (user.isMock) {
+        // Guardar en modo simulado (localStorage)
+        const updatedUser = {
+          ...user,
+          name: newName,
+          avatar: newAvatar
+        };
+        
+        localStorage.setItem('gima_mock_session', JSON.stringify(updatedUser));
+        setUser(updatedUser);
+        setSettingsSuccess('Ajustes guardados correctamente.');
+      } else {
+        // Guardar en Supabase real
+        if (newPassword) {
+          const { error: pwdError } = await supabase.auth.updateUser({
+            password: newPassword
+          });
+          if (pwdError) throw pwdError;
+        }
+
+        const { error: authError } = await supabase.auth.updateUser({
+          data: {
+            nombre_completo: newName,
+            avatar_url: newAvatar
+          }
+        });
+        if (authError) throw authError;
+
+        try {
+          const { error: dbError } = await supabase
+            .from('perfiles')
+            .update({
+              nombre_completo: newName,
+              avatar_url: newAvatar
+            } as any)
+            .eq('id', user.id);
+
+          if (dbError) {
+            await supabase
+              .from('perfiles')
+              .update({
+                nombre_completo: newName
+              })
+              .eq('id', user.id);
+          }
+        } catch (dbErr) {
+          console.warn('Error actualizando tabla perfiles:', dbErr);
+        }
+
+        setUser({
+          ...user,
+          name: newName,
+          avatar: newAvatar
+        });
+
+        setSettingsSuccess('Ajustes guardados correctamente.');
+      }
+    } catch (err: any) {
+      setSettingsError(err.message || 'Error al guardar los ajustes.');
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -604,17 +770,62 @@ export default function ChatPage() {
               </div>
 
               {/* Perfil del usuario / Cerrar sesión */}
-              <div className="p-4 border-t border-slate-900 bg-slate-950/40 flex items-center justify-between mt-auto">
-                <div className="flex flex-col overflow-hidden">
-                  <span className="text-xs font-bold text-slate-200 truncate">{user?.name}</span>
-                  <span className="text-[10px] text-slate-500 font-mono truncate">{user?.email}</span>
+              <div className="p-4 border-t border-slate-900 bg-slate-950/40 flex items-center justify-between mt-auto relative">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  {user?.avatar ? (
+                    <img 
+                      src={user.avatar} 
+                      alt="Avatar" 
+                      className="w-8 h-8 rounded-full object-cover border border-slate-800 shrink-0" 
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-accent-violet to-accent-pink flex items-center justify-center text-xs font-bold text-white shrink-0">
+                      {user?.name ? user.name.slice(0, 2).toUpperCase() : 'US'}
+                    </div>
+                  )}
+                  <div className="flex flex-col overflow-hidden">
+                    <span className="text-xs font-bold text-slate-200 truncate">{user?.name}</span>
+                    <span className="text-[10px] text-slate-500 font-mono truncate">{user?.email}</span>
+                  </div>
                 </div>
-                <button 
-                  onClick={handleLogout}
-                  className="p-1.5 text-slate-500 hover:text-red-400 rounded-md hover:bg-red-950/20 transition-all cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
+                <div className="relative">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowUserMenu(!showUserMenu);
+                    }}
+                    title="Ajustes y Sesión"
+                    className="p-1.5 text-slate-500 hover:text-white rounded-md hover:bg-slate-900 transition-all cursor-pointer"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
+                  
+                  {showUserMenu && (
+                    <div className="absolute bottom-full right-0 mb-2 w-48 bg-slate-950/95 border border-slate-800 rounded-xl p-2.5 shadow-2xl flex flex-col gap-1 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setShowSettingsModal(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-350 hover:text-white hover:bg-slate-900 rounded-lg transition-all cursor-pointer text-left font-medium"
+                      >
+                        <Settings className="w-3.5 h-3.5 text-accent-cyan" />
+                        Ajustes de Cuenta
+                      </button>
+                      <div className="h-[1px] bg-slate-900 my-1" />
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          handleLogout();
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-400 hover:text-red-400 hover:bg-red-950/15 rounded-lg transition-all cursor-pointer text-left font-medium"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        Cerrar sesión
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </aside>
@@ -725,23 +936,62 @@ export default function ChatPage() {
         </div>
 
         {/* Perfil del usuario / Cerrar sesión */}
-        <div className="p-4 border-t border-slate-900 bg-slate-950/40 flex items-center justify-between">
+        <div className="p-4 border-t border-slate-900 bg-slate-950/40 flex items-center justify-between relative">
           <div className="flex items-center gap-2 overflow-hidden">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-accent-violet to-accent-pink flex items-center justify-center text-xs font-bold text-white shrink-0">
-              {user?.name.slice(0, 2).toUpperCase()}
-            </div>
+            {user?.avatar ? (
+              <img 
+                src={user.avatar} 
+                alt="Avatar" 
+                className="w-8 h-8 rounded-full object-cover border border-slate-800 shrink-0" 
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-accent-violet to-accent-pink flex items-center justify-center text-xs font-bold text-white shrink-0">
+                {user?.name ? user.name.slice(0, 2).toUpperCase() : 'US'}
+              </div>
+            )}
             <div className="flex flex-col overflow-hidden">
               <span className="text-xs font-bold text-slate-200 truncate">{user?.name}</span>
               <span className="text-[10px] text-slate-500 font-mono truncate">{user?.email}</span>
             </div>
           </div>
-          <button 
-            onClick={handleLogout}
-            title="Cerrar sesión"
-            className="p-1.5 text-slate-500 hover:text-red-400 rounded-md hover:bg-red-950/20 transition-all cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+          <div className="relative">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowUserMenu(!showUserMenu);
+              }}
+              title="Ajustes y Sesión"
+              className="p-1.5 text-slate-500 hover:text-white rounded-md hover:bg-slate-900 transition-all cursor-pointer"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+            
+            {showUserMenu && (
+              <div className="absolute bottom-full right-0 mb-2 w-48 bg-slate-950/95 border border-slate-800 rounded-xl p-2.5 shadow-2xl flex flex-col gap-1 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <button
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    setShowSettingsModal(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-350 hover:text-white hover:bg-slate-900 rounded-lg transition-all cursor-pointer text-left font-medium"
+                >
+                  <Settings className="w-3.5 h-3.5 text-accent-cyan" />
+                  Ajustes de Cuenta
+                </button>
+                <div className="h-[1px] bg-slate-900 my-1" />
+                <button
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    handleLogout();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-400 hover:text-red-400 hover:bg-red-950/15 rounded-lg transition-all cursor-pointer text-left font-medium"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Cerrar sesión
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -773,10 +1023,11 @@ export default function ChatPage() {
               </span>
             </div>
             <button 
-              onClick={handleLogout}
-              className="md:hidden p-1.5 text-slate-400 hover:text-red-400 cursor-pointer"
+              onClick={() => setShowSettingsModal(true)}
+              title="Ajustes de Cuenta"
+              className="md:hidden p-1.5 text-slate-400 hover:text-accent-cyan cursor-pointer"
             >
-              <LogOut className="w-4.5 h-4.5" />
+              <Settings className="w-4.5 h-4.5" />
             </button>
           </div>
         </header>
@@ -1024,6 +1275,163 @@ export default function ChatPage() {
               </div>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE AJUSTES DE PERFIL */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md glass-panel neon-border-violet rounded-2xl p-6 md:p-8 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            <button 
+              onClick={() => setShowSettingsModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-500 hover:text-white rounded-md hover:bg-slate-900 transition-all cursor-pointer"
+            >
+              <X className="w-4.5 h-4.5" />
+            </button>
+
+            <div className="flex flex-col items-center mb-6">
+              <div className="p-3 bg-accent-violet/10 border border-accent-violet/30 rounded-2xl text-accent-cyan mb-3">
+                <Settings className="w-6 h-6 animate-spin-slow" />
+              </div>
+              <h2 className="text-xl font-extrabold tracking-tight text-white uppercase">
+                Ajustes de Cuenta
+              </h2>
+              <p className="text-slate-400 text-[11px] font-mono mt-1">
+                Personaliza tu perfil de viajero
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveSettings} className="space-y-5">
+              {/* Foto de Perfil / Avatar */}
+              <div className="flex flex-col items-center space-y-3">
+                <label className="text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wider">
+                  Foto de Perfil
+                </label>
+                
+                <div className="relative group cursor-pointer">
+                  {newAvatar ? (
+                    <img 
+                      src={newAvatar} 
+                      alt="Nuevo Avatar" 
+                      className="w-20 h-20 rounded-full object-cover border-2 border-accent-cyan/50 shadow-lg shadow-accent-cyan/15 group-hover:opacity-85 transition-all" 
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-accent-violet to-accent-pink flex items-center justify-center text-2xl font-bold text-white border-2 border-slate-800 shadow-lg group-hover:opacity-85 transition-all">
+                      {newName ? newName.slice(0, 2).toUpperCase() : 'US'}
+                    </div>
+                  )}
+                  
+                  {/* Overlay con ícono de cámara */}
+                  <label htmlFor="avatar-upload" className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                    <Camera className="w-5 h-5 text-white" />
+                  </label>
+                  
+                  <input 
+                    id="avatar-upload"
+                    type="file" 
+                    accept="image/*"
+                    onChange={handleAvatarChange}
+                    className="hidden" 
+                  />
+                </div>
+                
+                <span className="text-[10px] text-slate-500 font-mono">
+                  Haz clic para subir una foto personalizada
+                </span>
+              </div>
+
+              {/* Input Nombre */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wider block">
+                  Nombre de Viajero
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                    <User className="w-4 h-4" />
+                  </span>
+                  <input
+                    type="text"
+                    required
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Tu nombre o nick"
+                    className="w-full py-2.5 pl-10 pr-4 rounded-xl bg-slate-950/80 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Sección Cambiar Contraseña */}
+              <div className="pt-2 border-t border-slate-900 space-y-3">
+                <span className="text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wider block">
+                  Cambiar Contraseña
+                </span>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] text-slate-500 font-mono block">Nueva contraseña</span>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                        <Lock className="w-3.5 h-3.5" />
+                      </span>
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Mín. 6 caracteres"
+                        className="w-full py-2 pl-9 pr-3 rounded-lg bg-slate-950/80 border border-slate-800 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] text-slate-500 font-mono block">Confirmar contraseña</span>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                        <Lock className="w-3.5 h-3.5" />
+                      </span>
+                      <input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Repite la contraseña"
+                        className="w-full py-2 pl-9 pr-3 rounded-lg bg-slate-950/80 border border-slate-800 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mensajes de éxito / error */}
+              {settingsError && (
+                <div className="p-3 rounded-lg bg-red-950/20 border border-red-500/30 text-red-400 text-xs text-center font-mono">
+                  ⚠️ {settingsError}
+                </div>
+              )}
+
+              {settingsSuccess && (
+                <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/30 text-emerald-400 text-xs text-center font-mono">
+                  ✅ {settingsSuccess}
+                </div>
+              )}
+
+              {/* Botón de envío */}
+              <button
+                type="submit"
+                disabled={savingSettings}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-accent-violet via-accent-cyan to-accent-pink text-white text-xs font-bold uppercase tracking-wider hover:opacity-95 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer rounded-xl shadow-md shadow-accent-violet/10"
+              >
+                {savingSettings ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Guardando Ajustes...
+                  </>
+                ) : (
+                  'Guardar Cambios'
+                )}
+              </button>
+            </form>
           </div>
         </div>
       )}
