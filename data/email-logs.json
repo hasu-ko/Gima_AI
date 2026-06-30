@@ -1,0 +1,34 @@
+[
+  {
+    "timestamp": "2026-06-30T11:47:57.494Z",
+    "email": "john.ezparza@gmail.com",
+    "name": "Viajero",
+    "status": "success",
+    "details": "Recuperación enviada con éxito (MessageId: <2467e4ad-e661-8972-9686-f2050b40a3dc@gmail.com>)",
+    "type": "password_reset"
+  },
+  {
+    "timestamp": "2026-06-30T11:42:28.864Z",
+    "email": "john.ezparza@gmail.com",
+    "name": "Viajero",
+    "status": "success",
+    "details": "Recuperación enviada con éxito (MessageId: <a2865abf-b962-5235-38a9-a3ef0dd86faa@gmail.com>)",
+    "type": "password_reset"
+  },
+  {
+    "timestamp": "2026-06-30T11:12:55.324Z",
+    "email": "johniscraft@gmail.com",
+    "name": "dasda",
+    "status": "success",
+    "details": "Enviado con éxito (MessageId: <1e5d2331-79d6-a98f-4dd3-8a85ca002f4a@gmail.com>)",
+    "type": "confirm_signup"
+  },
+  {
+    "timestamp": "2026-06-30T11:09:40.405Z",
+    "email": "johniscraft@gmail.com",
+    "name": "dada",
+    "status": "failed",
+    "details": "Falta configuración de Nodemailer (EMAIL_USER / EMAIL_PASS). Enlace: https://reoqpbmtqvlwosxputdu.supabase.co/auth/v1/verify?token=4a45973027e00590d5962d35cfe5b1fe509994e6a8ebcc9e2aaaf1a9&type=signup&redirect_to=http://localhost:3000/auth/callback",
+    "type": "confirm_signup"
+  }
+]

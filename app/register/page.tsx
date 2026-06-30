@@ -8,14 +8,14 @@ import CustomDatePicker from '@/components/DatePicker';
 
 export default function RegisterPage() {
   const router = useRouter();
-  
+
   // Estados de los campos
   const [nombreCompleto, setNombreCompleto] = useState('');
   const [fechaNacimiento, setFechaNacimiento] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  
+
   // Estados de carga y feedback
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -36,24 +36,24 @@ export default function RegisterPage() {
   const passHasLower = /[a-z]/.test(password);
   const passHasNumber = /[0-9]/.test(password);
   const passHasSpecial = /[@$!%*?&!@#$%^&*(),.?":{}|<>]/.test(password);
-  
+
   const isPasswordValid = passLength && passHasUpper && passHasLower && passHasNumber && passHasSpecial;
 
   // Validación de edad (Mínimo 13 años)
   const validarEdad = (birthDateString: string): boolean => {
     if (!birthDateString) return false;
-    
+
     const birthDate = new Date(birthDateString);
     const today = new Date();
-    
+
     let age = today.getFullYear() - birthDate.getFullYear();
     const monthDiff = today.getMonth() - birthDate.getMonth();
-    
+
     // Ajustar si el cumpleaños no ha pasado este año
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
       age--;
     }
-    
+
     return age >= 13;
   };
 
@@ -83,7 +83,7 @@ export default function RegisterPage() {
       setLoading(false);
       return;
     }
-    
+
     if (!validarEdad(fechaNacimiento)) {
       setErrorMsg('Excepción de Edad: Debes tener al menos 13 años para registrarte en GIMA.');
       setLoading(false);
@@ -112,46 +112,49 @@ export default function RegisterPage() {
       return;
     }
 
-    // --- MODO DESARROLLO SIN TOKENS ---
-    if (!isConfigured) {
-      setTimeout(() => {
-        // Almacenar datos simulados localmente
-        const mockUser = {
-          id: 'dev-user-' + Math.random().toString(36).substr(2, 9),
-          email: email,
-          name: nombreCompleto,
-          fecha_nacimiento: fechaNacimiento,
-          isMock: true
-        };
-        localStorage.setItem('gima_mock_session', JSON.stringify(mockUser));
-        
-        setSuccessMsg('¡Usuario registrado con éxito (Modo Simulado)! Redirigiendo...');
-        setLoading(false);
-        setTimeout(() => {
-          router.push('/');
-        }, 1200);
-      }, 1000);
-      return;
-    }
-
-    // --- MODO PRODUCCIÓN / SUPABASE REAL ---
+    // --- REGISTRO SEGURO A TRAVÉS DE LA API (REAL O SIMULADO) ---
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            nombre_completo: nombreCompleto,
-            fecha_nacimiento: fechaNacimiento,
-          },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        }
+      const response = await fetch('/api/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          nombreCompleto,
+          fechaNacimiento,
+          redirectTo: `${window.location.origin}/auth/callback`,
+        }),
       });
 
-      if (error) {
-        setErrorMsg(error.message);
+      const resData = await response.json();
+
+      if (!response.ok || !resData.success) {
+        setErrorMsg(resData.error || 'Ocurrió un error al registrarse.');
       } else {
-        setSuccessMsg('¡Registro completado! Verifica tu correo electrónico para activar tu cuenta.');
+        if (resData.isMock) {
+          // Si fue simulado, guarda sesión mock
+          const mockUser = {
+            id: 'dev-user-' + Math.random().toString(36).substr(2, 9),
+            email: email,
+            name: nombreCompleto,
+            fecha_nacimiento: fechaNacimiento,
+            isMock: true
+          };
+          localStorage.setItem('gima_mock_session', JSON.stringify(mockUser));
+          
+          setSuccessMsg(resData.message || '¡Registro simulado completado! Redirigiendo...');
+          setLoading(false);
+          setTimeout(() => {
+            router.push('/');
+          }, 2000);
+          return;
+        }
+
+        // Si fue real
+        setSuccessMsg(resData.message || '¡Registro completado! Verifica tu correo electrónico para activar tu cuenta.');
+        
         // Limpiar campos y reiniciar estados de tocado
         setNombreCompleto('');
         setFechaNacimiento('');
@@ -179,7 +182,7 @@ export default function RegisterPage() {
 
       {/* Tarjeta de Registro */}
       <div className="relative w-full max-w-lg glass-panel neon-border-violet rounded-2xl p-8 shadow-2xl overflow-hidden transition-all duration-300">
-        
+
         {/* Adorno superior */}
         <div className="absolute top-0 left-0 w-24 h-24 bg-gradient-to-br from-accent-violet to-transparent opacity-10 rounded-br-full pointer-events-none" />
 
@@ -215,7 +218,7 @@ export default function RegisterPage() {
 
         {/* Formulario */}
         <form onSubmit={handleRegister} className="space-y-4">
-          
+
           {/* Nombre Completo */}
           <div>
             <label className="block text-xs font-semibold text-slate-400 font-mono mb-1 uppercase tracking-wider">
@@ -400,6 +403,19 @@ export default function RegisterPage() {
             <ArrowLeft className="w-3.5 h-3.5" />
             Volver a Iniciar Sesión
           </button>
+        </div>
+
+        <div className="mt-4 p-3 bg-accent-violet/10 border border-accent-violet/20 rounded-lg text-center animate-in fade-in">
+          <p className="text-[11px] text-slate-350 leading-normal">
+            🔧 <strong>Logs de Correo:</strong> Puedes monitorizar el estado y depurar SMTP en{' '}
+            <button
+              type="button"
+              onClick={() => router.push('/email-logs')}
+              className="text-accent-cyan hover:underline font-bold cursor-pointer font-mono"
+            >
+              /email-logs
+            </button>
+          </p>
         </div>
 
         {/* Pie */}

@@ -110,7 +110,57 @@ export async function obtenerCreditos(userId: string): Promise<{ creditos: numbe
       .single();
 
     if (error) {
+      // PGRST116 significa que no se encontró ninguna fila para ese id en public.perfiles
+      if (error.code === 'PGRST116') {
+        console.log(`[Credits] El perfil de usuario ${userId} no existe en la tabla perfiles. Creando perfil automático...`);
+        
+        // 1. Obtener los metadatos de usuario desde auth.users
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.getUserById(userId);
+        
+        if (authError || !authData?.user) {
+          console.error('Error al obtener usuario de Auth para auto-crear perfil:', authError);
+          return { creditos: 0, isMock: false };
+        }
+
+        const email = authData.user.email || '';
+        const name = authData.user.user_metadata?.nombre_completo || email.split('@')[0] || 'Viajero';
+        const birthDate = authData.user.user_metadata?.fecha_nacimiento || null;
+
+        // 2. Insertar fila en perfiles con 5 créditos iniciales
+        const { data: newProfile, error: insertError } = await supabaseAdmin
+          .from('perfiles')
+          .insert({
+            id: userId,
+            email,
+            nombre_completo: name,
+            fecha_nacimiento: birthDate,
+            creditos_disponibles: 5
+          })
+          .select('creditos_disponibles')
+          .single();
+
+        if (insertError) {
+          console.error('Error al auto-crear perfil en Supabase:', insertError);
+          if (insertError.code === '42P01') {
+            console.error('⚠️ ALERTA DE CONFIGURACIÓN: La tabla "public.perfiles" no existe en Supabase. Por favor, copia y pega el archivo "schema.sql" en el SQL Editor de tu panel de Supabase.');
+          }
+          if (insertError.code === 'PGRST204' || insertError.message?.includes('fecha_nacimiento') || insertError.message?.includes('nombre_completo')) {
+            console.error('⚠️ ALERTA DE CONFIGURACIÓN: Faltan las columnas "nombre_completo" y/o "fecha_nacimiento" en tu tabla "perfiles" en Supabase.\n\nEjecuta las siguientes consultas SQL en el SQL Editor de tu panel de Supabase:\n\nALTER TABLE public.perfiles ADD COLUMN IF NOT EXISTS nombre_completo TEXT;\nALTER TABLE public.perfiles ADD COLUMN IF NOT EXISTS fecha_nacimiento DATE;\n');
+          }
+          return { creditos: 0, isMock: false };
+        }
+
+        console.log(`[Credits] Perfil auto-creado con éxito para ${email} (5 créditos gratuitos asignados).`);
+        return {
+          creditos: newProfile?.creditos_disponibles ?? 5,
+          isMock: false
+        };
+      }
+
       console.error('Error al obtener créditos en Supabase:', error);
+      if (error.code === '42P01') {
+        console.error('⚠️ ALERTA DE CONFIGURACIÓN: La tabla "public.perfiles" no existe en Supabase. Por favor, copia y pega el archivo "schema.sql" en el SQL Editor de tu panel de Supabase.');
+      }
       return { creditos: 0, isMock: false };
     }
 
@@ -118,7 +168,8 @@ export async function obtenerCreditos(userId: string): Promise<{ creditos: numbe
       creditos: data?.creditos_disponibles ?? 0,
       isMock: false,
     };
-  } catch {
+  } catch (err) {
+    console.error('Excepción al obtener créditos en Supabase:', err);
     return { creditos: 0, isMock: false };
   }
 }

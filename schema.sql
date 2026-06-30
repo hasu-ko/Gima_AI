@@ -85,3 +85,66 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =========================================================================
+-- TABLAS DE PERSISTENCIA DE CHAT (HISTORIAL Y MULTI-CONVERSACIÓN)
+-- =========================================================================
+
+-- 1. Crear la tabla de conversaciones
+CREATE TABLE IF NOT EXISTS public.conversaciones (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    titulo TEXT DEFAULT 'Nueva conversación',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Habilitar seguridad RLS en conversaciones
+ALTER TABLE public.conversaciones ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de RLS para conversaciones
+CREATE POLICY "Los usuarios pueden ver sus propias conversaciones"
+    ON public.conversaciones FOR SELECT
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Los usuarios pueden crear sus propias conversaciones"
+    ON public.conversaciones FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Los usuarios pueden actualizar sus propias conversaciones"
+    ON public.conversaciones FOR UPDATE
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Los usuarios pueden borrar sus propias conversaciones"
+    ON public.conversaciones FOR DELETE
+    USING (auth.uid() = user_id);
+
+-- 2. Crear la tabla de mensajes
+CREATE TABLE IF NOT EXISTS public.mensajes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversacion_id UUID NOT NULL REFERENCES public.conversaciones(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Habilitar seguridad RLS en mensajes
+ALTER TABLE public.mensajes ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de RLS para mensajes
+CREATE POLICY "Los usuarios pueden ver los mensajes de sus conversaciones"
+    ON public.mensajes FOR SELECT
+    USING (EXISTS (
+        SELECT 1 FROM public.conversaciones
+        WHERE public.conversaciones.id = mensajes.conversacion_id
+          AND public.conversaciones.user_id = auth.uid()
+    ));
+
+CREATE POLICY "Los usuarios pueden insertar mensajes en sus conversaciones"
+    ON public.mensajes FOR INSERT
+    WITH CHECK (EXISTS (
+        SELECT 1 FROM public.conversaciones
+        WHERE public.conversaciones.id = mensajes.conversacion_id
+          AND public.conversaciones.user_id = auth.uid()
+    ));
+

@@ -18,6 +18,7 @@ export default function AuthCallbackPage() {
         // 1. Obtener parámetros de búsqueda (para flujo PKCE con ?code=...)
         const params = new URLSearchParams(window.location.search);
         const code = params.get('code');
+        const redirectTo = params.get('redirect_to') || '/';
 
         if (code) {
           // Intercambiar el código por una sesión
@@ -32,9 +33,9 @@ export default function AuthCallbackPage() {
         if (session) {
           if (mounted) {
             setStatus('success');
-            // Redirigir al inicio después de un breve instante para dar feedback visual
+            // Redirigir al inicio o página elegida después de un breve instante para dar feedback visual
             setTimeout(() => {
-              router.push('/');
+              router.push(redirectTo);
             }, 1500);
           }
           return;
@@ -47,7 +48,7 @@ export default function AuthCallbackPage() {
               setStatus('success');
               subscription.unsubscribe();
               setTimeout(() => {
-                router.push('/');
+                router.push(redirectTo);
               }, 1500);
             }
           }

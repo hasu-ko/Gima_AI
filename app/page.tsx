@@ -16,18 +16,23 @@ export default function LandingPage() {
 
   useEffect(() => {
     async function checkUserSession() {
-      // 1. Verificar sesión simulada
-      const mockSession = localStorage.getItem('gima_mock_session');
-      if (mockSession) {
-        const parsed = JSON.parse(mockSession);
-        setIsLoggedIn(true);
-        setUserName(parsed.name || 'Viajero');
-        setLoading(false);
-        return;
+      const isDbConfigured = isSupabaseConfigured();
+      if (isDbConfigured) {
+        localStorage.removeItem('gima_mock_session');
+      } else {
+        // 1. Verificar sesión simulada
+        const mockSession = localStorage.getItem('gima_mock_session');
+        if (mockSession) {
+          const parsed = JSON.parse(mockSession);
+          setIsLoggedIn(true);
+          setUserName(parsed.name || 'Viajero');
+          setLoading(false);
+          return;
+        }
       }
 
       // 2. Verificar sesión de Supabase
-      if (isSupabaseConfigured()) {
+      if (isDbConfigured) {
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (session && session.user) {

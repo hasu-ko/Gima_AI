@@ -2,15 +2,24 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { 
   Gamepad2, Sparkles, Send, Coins, LogOut, MessageSquare, 
-  Search, ShieldAlert, CreditCard, Check, X, RefreshCw, Zap
+  Search, ShieldAlert, CreditCard, Check, X, RefreshCw, Zap,
+  Plus, Trash2, Menu
 } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+}
+
+interface Conversation {
+  id: string;
+  user_id: string;
+  titulo: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export default function ChatPage() {
@@ -24,6 +33,12 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [credits, setCredits] = useState(5);
   const [isCreditsMock, setIsCreditsMock] = useState(true);
+
+  // Estados de multi-conversación
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [loadingConvs, setLoadingConvs] = useState<boolean>(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   
   // Modales
   const [showPaywall, setShowPaywall] = useState(false);
@@ -31,18 +46,34 @@ export default function ChatPage() {
   const [rechargeSuccess, setRechargeSuccess] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typewriterIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Limpieza del intervalo de escritura al desmontar
+  useEffect(() => {
+    return () => {
+      if (typewriterIntervalRef.current) {
+        clearInterval(typewriterIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Cargar sesión del usuario al montar
   useEffect(() => {
     async function checkAuth() {
-      // 1. Verificar sesión simulada
-      const mockSessionStr = localStorage.getItem('gima_mock_session');
-      if (mockSessionStr) {
-        const mockUser = JSON.parse(mockSessionStr);
-        setUser(mockUser);
-        await syncCredits(mockUser.id);
-        setLoading(false);
-        return;
+      const isDbConfigured = isSupabaseConfigured();
+      if (isDbConfigured) {
+        localStorage.removeItem('gima_mock_session');
+      } else {
+        // 1. Verificar sesión simulada
+        const mockSessionStr = localStorage.getItem('gima_mock_session');
+        if (mockSessionStr) {
+          const mockUser = JSON.parse(mockSessionStr);
+          setUser(mockUser);
+          await syncCredits(mockUser.id);
+          await loadConversations(mockUser.id, true);
+          setLoading(false);
+          return;
+        }
       }
 
       // 2. Verificar sesión real de Supabase
@@ -57,6 +88,7 @@ export default function ChatPage() {
           };
           setUser(realUser);
           await syncCredits(realUser.id);
+          await loadConversations(realUser.id, false);
         } else {
           // Si no hay sesión, mandar a login
           router.push('/login');
@@ -71,6 +103,146 @@ export default function ChatPage() {
 
     checkAuth();
   }, [router]);
+
+  // Cargar conversaciones desde la base de datos o localStorage
+  const loadConversations = async (userId: string, isMockUser: boolean) => {
+    setLoadingConvs(true);
+    if (isMockUser) {
+      try {
+        const storedConvs = localStorage.getItem('gima_conversations');
+        if (storedConvs) {
+          const allConvs = JSON.parse(storedConvs) as Conversation[];
+          const userConvs = allConvs.filter(c => c.user_id === userId);
+          userConvs.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+          setConversations(userConvs);
+          if (userConvs.length > 0) {
+            setActiveConvId(userConvs[0].id);
+            loadMessages(userConvs[0].id, true);
+          } else {
+            handleNewChat();
+          }
+        } else {
+          handleNewChat();
+        }
+      } catch (err) {
+        console.error('Error al cargar conversaciones simuladas:', err);
+      } finally {
+        setLoadingConvs(false);
+      }
+    } else {
+      try {
+        const { data, error } = await supabase
+          .from('conversaciones')
+          .select('*')
+          .eq('user_id', userId)
+          .order('updated_at', { ascending: false });
+
+        if (error) throw error;
+
+        setConversations(data || []);
+        if (data && data.length > 0) {
+          setActiveConvId(data[0].id);
+          loadMessages(data[0].id, false);
+        } else {
+          handleNewChat();
+        }
+      } catch (err) {
+        console.error('Error al cargar conversaciones de Supabase:', err);
+      } finally {
+        setLoadingConvs(false);
+      }
+    }
+  };
+
+  // Cargar mensajes de una conversación
+  const loadMessages = async (convId: string, isMockUser: boolean) => {
+    if (isMockUser) {
+      try {
+        const storedMsgs = localStorage.getItem('gima_messages');
+        if (storedMsgs) {
+          const allMsgs = JSON.parse(storedMsgs) as Record<string, Message[]>;
+          setMessages(allMsgs[convId] || []);
+        } else {
+          setMessages([]);
+        }
+      } catch (err) {
+        console.error('Error al cargar mensajes simulados:', err);
+      }
+    } else {
+      try {
+        const { data, error } = await supabase
+          .from('mensajes')
+          .select('role, content')
+          .eq('conversacion_id', convId)
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        setMessages(data || []);
+      } catch (err) {
+        console.error('Error al cargar mensajes de Supabase:', err);
+      }
+    }
+  };
+
+  // Seleccionar una conversación
+  const handleSelectConversation = (convId: string) => {
+    setActiveConvId(convId);
+    loadMessages(convId, user?.isMock ?? true);
+    setIsSidebarOpen(false);
+  };
+
+  // Iniciar un nuevo chat vacío
+  const handleNewChat = () => {
+    setActiveConvId(null);
+    setMessages([]);
+    setIsSidebarOpen(false);
+  };
+
+  // Eliminar una conversación y sus mensajes
+  const handleDeleteConversation = async (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation();
+    const isMockUser = user?.isMock ?? true;
+
+    if (isMockUser) {
+      try {
+        // Eliminar conversación del localStorage
+        const storedConvs = localStorage.getItem('gima_conversations');
+        if (storedConvs) {
+          const allConvs = JSON.parse(storedConvs) as Conversation[];
+          const updatedConvs = allConvs.filter(c => c.id !== convId);
+          localStorage.setItem('gima_conversations', JSON.stringify(updatedConvs));
+          setConversations(updatedConvs.filter(c => c.user_id === user?.id));
+        }
+
+        // Eliminar mensajes del localStorage
+        const storedMsgs = localStorage.getItem('gima_messages');
+        if (storedMsgs) {
+          const allMsgs = JSON.parse(storedMsgs) as Record<string, Message[]>;
+          delete allMsgs[convId];
+          localStorage.setItem('gima_messages', JSON.stringify(allMsgs));
+        }
+      } catch (err) {
+        console.error('Error al borrar conversación simulada:', err);
+      }
+    } else {
+      try {
+        const { error } = await supabase
+          .from('conversaciones')
+          .delete()
+          .eq('id', convId);
+
+        if (error) throw error;
+        setConversations(prev => prev.filter(c => c.id !== convId));
+      } catch (err) {
+        console.error('Error al borrar conversación de Supabase:', err);
+      }
+    }
+
+    // Si borramos la conversación activa, volvemos a la pantalla de nuevo chat
+    if (activeConvId === convId) {
+      handleNewChat();
+    }
+  };
 
   // Desplazar chat hacia abajo al recibir mensajes
   useEffect(() => {
@@ -92,6 +264,10 @@ export default function ChatPage() {
   };
 
   const handleLogout = async () => {
+    if (typewriterIntervalRef.current) {
+      clearInterval(typewriterIntervalRef.current);
+      typewriterIntervalRef.current = null;
+    }
     localStorage.removeItem('gima_mock_session');
     await supabase.auth.signOut();
     router.push('/');
@@ -108,14 +284,109 @@ export default function ChatPage() {
       return;
     }
 
-    // Agregar mensaje del usuario a la pantalla
-    const newMessages: Message[] = [...messages, { role: 'user', content: queryText }];
-    setMessages(newMessages);
-    setInputMsg('');
+    const isMockUser = user?.isMock ?? true;
+    let currentConvId = activeConvId;
+    
     setSending(true);
+    setInputMsg('');
 
     try {
-      // Llamar al endpoint del backend que consume el crédito
+      // 1. Si no hay conversación activa, crear una nueva primero
+      if (!currentConvId) {
+        const title = queryText.length > 25 ? queryText.substring(0, 25) + '...' : queryText;
+        
+        if (isMockUser) {
+          const newConv: Conversation = {
+            id: 'mock-conv-' + Math.random().toString(36).substring(2, 9),
+            user_id: user?.id || 'dev-user-12345',
+            titulo: title,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          
+          // Guardar conversación en localStorage
+          const storedConvs = localStorage.getItem('gima_conversations');
+          const allConvs = storedConvs ? (JSON.parse(storedConvs) as Conversation[]) : [];
+          allConvs.unshift(newConv);
+          localStorage.setItem('gima_conversations', JSON.stringify(allConvs));
+          
+          setConversations(prev => [newConv, ...prev]);
+          setActiveConvId(newConv.id);
+          currentConvId = newConv.id;
+        } else {
+          // Crear en Supabase
+          const { data: convData, error: convError } = await supabase
+            .from('conversaciones')
+            .insert({
+              user_id: user?.id,
+              titulo: title
+            })
+            .select()
+            .single();
+
+          if (convError) throw convError;
+
+          setConversations(prev => [convData, ...prev]);
+          setActiveConvId(convData.id);
+          currentConvId = convData.id;
+        }
+      }
+      
+      const convId = currentConvId as string;
+
+      // 2. Agregar y persistir el mensaje del usuario
+      const userMessage: Message = { role: 'user', content: queryText };
+      const newMessages = [...messages, userMessage];
+      setMessages(newMessages);
+
+      if (isMockUser) {
+        const storedMsgs = localStorage.getItem('gima_messages');
+        const allMsgs = storedMsgs ? (JSON.parse(storedMsgs) as Record<string, Message[]>) : {};
+        allMsgs[convId] = [...(allMsgs[convId] || []), userMessage];
+        localStorage.setItem('gima_messages', JSON.stringify(allMsgs));
+        
+        // Actualizar timestamp en localStorage
+        const storedConvs = localStorage.getItem('gima_conversations');
+        if (storedConvs) {
+          const allConvs = JSON.parse(storedConvs) as Conversation[];
+          const currentConv = allConvs.find(c => c.id === convId);
+          if (currentConv) {
+            currentConv.updated_at = new Date().toISOString();
+            localStorage.setItem('gima_conversations', JSON.stringify(allConvs));
+            setConversations(allConvs.filter(c => c.user_id === user?.id).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()));
+          }
+        }
+      } else {
+        // Guardar en Supabase
+        const { error: msgError } = await supabase
+          .from('mensajes')
+          .insert({
+            conversacion_id: convId,
+            role: 'user',
+            content: queryText
+          });
+
+        if (msgError) throw msgError;
+
+        // Actualizar updated_at de la conversación en Supabase
+        await supabase
+          .from('conversaciones')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', convId);
+
+        // Actualizar orden en estado local
+        setConversations(prev => {
+          const index = prev.findIndex(c => c.id === convId);
+          if (index !== -1) {
+            const updated = [...prev];
+            updated[index] = { ...updated[index], updated_at: new Date().toISOString() };
+            return updated.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+          }
+          return prev;
+        });
+      }
+
+      // 3. Llamar al endpoint de chat para la respuesta del bot
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -128,40 +399,74 @@ export default function ChatPage() {
       const data = await response.json();
 
       if (response.status === 402 || !data.success) {
-        // Muro de pago si no hay créditos
         setCredits(0);
         setShowPaywall(true);
-        setMessages([...newMessages, { 
+        const botErrorMsg: Message = { 
           role: 'assistant', 
           content: '⚠️ Lo siento, has agotado tus créditos de consulta diaria. Por favor compra más créditos o suscríbete para continuar.' 
-        }]);
+        };
+        setMessages([...newMessages, botErrorMsg]);
       } else {
-        // Actualizar créditos en base al resultado del backend
         setCredits(data.creditsRemaining);
         
-        // Simular efecto de máquina de escribir para la respuesta (Streaming falso)
-        let index = 0;
         const responseText = data.response;
+        const botMessage: Message = { role: 'assistant', content: responseText };
+        
+        // Efecto de máquina de escribir
+        let charIndex = 0;
         setMessages([...newMessages, { role: 'assistant', content: '' }]);
         
-        const interval = setInterval(() => {
+        if (typewriterIntervalRef.current) {
+          clearInterval(typewriterIntervalRef.current);
+        }
+
+        typewriterIntervalRef.current = setInterval(() => {
           setMessages((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
             if (last && last.role === 'assistant') {
-              last.content = responseText.slice(0, index + 1);
+              last.content = responseText.slice(0, charIndex + 1);
             }
             return next;
           });
-          index++;
-          if (index >= responseText.length) {
-            clearInterval(interval);
+          charIndex++;
+          if (charIndex >= responseText.length) {
+            if (typewriterIntervalRef.current) {
+              clearInterval(typewriterIntervalRef.current);
+              typewriterIntervalRef.current = null;
+            }
+            
+            // Persistir el mensaje del bot al terminar la animación
+            if (isMockUser) {
+              const storedMsgs = localStorage.getItem('gima_messages');
+              if (storedMsgs) {
+                const allMsgs = JSON.parse(storedMsgs) as Record<string, Message[]>;
+                allMsgs[convId] = [...(allMsgs[convId] || []), botMessage];
+                localStorage.setItem('gima_messages', JSON.stringify(allMsgs));
+              }
+            } else {
+              // Validar que el usuario siga autenticado antes de insertar en la DB
+              supabase.auth.getSession().then(({ data: { session } }) => {
+                if (!session) return;
+                
+                supabase
+                  .from('mensajes')
+                  .insert({
+                    conversacion_id: convId,
+                    role: 'assistant',
+                    content: responseText
+                  })
+                  .then(({ error: insertBotError }) => {
+                    if (insertBotError) console.error('Error al persistir respuesta del asistente en Supabase:', insertBotError);
+                  });
+              });
+            }
           }
-        }, 15);
+        }, 12);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error al enviar mensaje:', err);
-      setMessages([...newMessages, { 
+      setMessages(prev => [...prev, { 
         role: 'assistant', 
         content: 'Hubo un error de red al procesar tu consulta. Por favor inténtalo de nuevo.' 
       }]);
@@ -223,6 +528,100 @@ export default function ChatPage() {
   return (
     <div className="flex h-screen w-full bg-[#06060c] text-slate-100 overflow-hidden font-sans">
       
+      {/* SIDEBAR MÓVIL (DRAWER OVERLAY) */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <aside className="w-72 bg-slate-950 border-r border-slate-900 flex flex-col justify-between p-6 animate-in slide-in-from-left duration-300">
+            <div className="flex flex-col h-full overflow-hidden">
+              {/* Header con botón cerrar */}
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-accent-pink/10 border border-accent-pink/30 rounded-lg text-accent-pink">
+                    <Gamepad2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="font-extrabold text-lg tracking-wider gradient-text-gaming leading-none">
+                      GIMA
+                    </span>
+                    <div className="text-[9px] tracking-widest font-mono text-slate-500 uppercase">
+                      Assistant
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="p-1 text-slate-500 hover:text-white rounded-md cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Botón Nuevo Chat */}
+              <button 
+                onClick={handleNewChat}
+                className="w-full py-2.5 mb-4 text-center text-xs font-bold uppercase tracking-wider text-white bg-gradient-to-r from-accent-violet to-accent-cyan hover:opacity-95 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-accent-violet/10 shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Nuevo Chat
+              </button>
+
+              {/* Historial de chats */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="text-[10px] uppercase font-mono tracking-widest text-slate-500 mb-3 px-1 shrink-0">
+                  Chats recientes
+                </div>
+                <div className="space-y-1.5 flex-1 overflow-y-auto pr-1">
+                  {loadingConvs ? (
+                    <div className="text-center py-4 text-xs text-slate-600 font-mono">Cargando chats...</div>
+                  ) : conversations.length === 0 ? (
+                    <div className="text-center py-6 text-xs text-slate-500 font-sans">No hay chats recientes</div>
+                  ) : (
+                    conversations.map((conv) => (
+                      <div
+                        key={conv.id}
+                        className={`group w-full flex items-center justify-between p-2.5 rounded-lg border text-xs transition-all cursor-pointer ${
+                          activeConvId === conv.id
+                            ? 'border-accent-cyan bg-slate-900/60 text-white font-semibold'
+                            : 'border-transparent hover:border-slate-800 bg-slate-900/10 hover:bg-slate-900/40 text-slate-400 hover:text-slate-200'
+                        }`}
+                        onClick={() => handleSelectConversation(conv.id)}
+                      >
+                        <div className="flex items-center gap-2 overflow-hidden flex-1">
+                          <MessageSquare className="w-3.5 h-3.5 text-slate-600 shrink-0 group-hover:text-accent-cyan" />
+                          <span className="truncate">{conv.titulo}</span>
+                        </div>
+                        <button
+                          onClick={(e) => handleDeleteConversation(e, conv.id)}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 rounded transition-all cursor-pointer"
+                          title="Borrar chat"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Perfil del usuario / Cerrar sesión */}
+              <div className="p-4 border-t border-slate-900 bg-slate-950/40 flex items-center justify-between mt-auto">
+                <div className="flex flex-col overflow-hidden">
+                  <span className="text-xs font-bold text-slate-200 truncate">{user?.name}</span>
+                  <span className="text-[10px] text-slate-500 font-mono truncate">{user?.email}</span>
+                </div>
+                <button 
+                  onClick={handleLogout}
+                  className="p-1.5 text-slate-500 hover:text-red-400 rounded-md hover:bg-red-950/20 transition-all cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </aside>
+          <div className="flex-1" onClick={() => setIsSidebarOpen(false)} />
+        </div>
+      )}
+
       {/* SIDEBAR IZQUIERDO */}
       <aside className="w-80 border-r border-slate-900 bg-slate-950/70 backdrop-blur-md flex flex-col justify-between hidden md:flex shrink-0">
         <div className="p-6 flex flex-col h-full overflow-hidden">
@@ -278,27 +677,48 @@ export default function ChatPage() {
             )}
           </div>
 
-          {/* Historial de chats Mock */}
+          {/* Historial de chats */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="text-[10px] uppercase font-mono tracking-widest text-slate-500 mb-3 px-1">
-              Consultas recientes
+            <button 
+              onClick={handleNewChat}
+              className="w-full py-2.5 mb-4 text-center text-xs font-bold uppercase tracking-wider text-white bg-gradient-to-r from-accent-violet to-accent-cyan hover:opacity-95 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-accent-violet/10 shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Nuevo Chat
+            </button>
+            <div className="text-[10px] uppercase font-mono tracking-widest text-slate-500 mb-3 px-1 shrink-0">
+              Chats recientes
             </div>
             <div className="space-y-1.5 flex-1 overflow-y-auto pr-1">
-              {[
-                'Build Wuthering Waves Jiyan',
-                'Historia de Raiden Shogun',
-                'Meta HSR Tier List 2.1',
-                'Mejor equipo Firefly'
-              ].map((historyText, i) => (
-                <button 
-                  key={i} 
-                  onClick={() => selectQuickQuestion(historyText)}
-                  className="w-full text-left p-2.5 rounded-lg border border-transparent hover:border-slate-800 bg-slate-900/10 hover:bg-slate-900/40 text-xs text-slate-400 hover:text-slate-200 transition-all flex items-center gap-2 cursor-pointer truncate"
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-                  <span className="truncate">{historyText}</span>
-                </button>
-              ))}
+              {loadingConvs ? (
+                <div className="text-center py-4 text-xs text-slate-600 font-mono">Cargando chats...</div>
+              ) : conversations.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-500 font-sans">No hay chats recientes</div>
+              ) : (
+                conversations.map((conv) => (
+                  <div
+                    key={conv.id}
+                    className={`group w-full flex items-center justify-between p-2.5 rounded-lg border text-xs transition-all cursor-pointer ${
+                      activeConvId === conv.id
+                        ? 'border-accent-cyan bg-slate-900/60 text-white font-semibold'
+                        : 'border-transparent hover:border-slate-800 bg-slate-900/10 hover:bg-slate-900/40 text-slate-400 hover:text-slate-200'
+                    }`}
+                    onClick={() => handleSelectConversation(conv.id)}
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden flex-1">
+                      <MessageSquare className="w-3.5 h-3.5 text-slate-600 shrink-0 group-hover:text-accent-cyan" />
+                      <span className="truncate">{conv.titulo}</span>
+                    </div>
+                    <button
+                      onClick={(e) => handleDeleteConversation(e, conv.id)}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 rounded transition-all cursor-pointer"
+                      title="Borrar chat"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -331,9 +751,12 @@ export default function ChatPage() {
         {/* Cabecera Móvil (si Sidebar está oculto) */}
         <header className="h-16 border-b border-slate-900 flex items-center justify-between px-6 md:px-8 bg-slate-950/30 backdrop-blur-sm">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-accent-pink/10 border border-accent-pink/20 rounded-md text-accent-pink md:hidden">
-              <Gamepad2 className="w-4 h-4" />
-            </div>
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-1.5 bg-slate-900 border border-slate-800 text-slate-350 hover:text-white rounded-md md:hidden cursor-pointer"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
             <h2 className="font-bold text-sm tracking-wide text-slate-200 flex items-center gap-2">
               Consola de Consulta
               <span className="px-2 py-0.5 rounded-full text-[9px] bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan font-mono animate-pulse">
