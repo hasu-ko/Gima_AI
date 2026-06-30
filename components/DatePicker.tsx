@@ -7,9 +7,10 @@ interface DatePickerProps {
   value: string; // Formato 'YYYY-MM-DD'
   onChange: (value: string) => void;
   maxYear?: number; // Límite de año (ej: 2013 para >=13 años)
+  onBlur?: () => void;
 }
 
-export default function CustomDatePicker({ value, onChange, maxYear = new Date().getFullYear() - 13 }: DatePickerProps) {
+export default function CustomDatePicker({ value, onChange, maxYear = new Date().getFullYear() - 13, onBlur }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   
   // Analizar fecha inicial
@@ -25,12 +26,15 @@ export default function CustomDatePicker({ value, onChange, maxYear = new Date()
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        if (isOpen && onBlur) {
+          onBlur();
+        }
         setIsOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isOpen, onBlur]);
 
   // Sincronizar mes/año cuando cambia el valor externo
   useEffect(() => {
@@ -68,6 +72,9 @@ export default function CustomDatePicker({ value, onChange, maxYear = new Date()
     const selectedDateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
     onChange(selectedDateStr);
     setIsOpen(false);
+    if (onBlur) {
+      onBlur();
+    }
   };
 
   const changeMonth = (direction: 'next' | 'prev') => {

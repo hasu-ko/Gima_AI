@@ -14,11 +14,19 @@ export default function RegisterPage() {
   const [fechaNacimiento, setFechaNacimiento] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   
   // Estados de carga y feedback
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Estados de campos tocados (para validación al perder foco)
+  const [nombreCompletoTouched, setNombreCompletoTouched] = useState(false);
+  const [fechaNacimientoTouched, setFechaNacimientoTouched] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [confirmPasswordTouched, setConfirmPasswordTouched] = useState(false);
 
   const isConfigured = isSupabaseConfigured();
 
@@ -51,6 +59,13 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Marcar todos los campos como tocados al enviar
+    setNombreCompletoTouched(true);
+    setFechaNacimientoTouched(true);
+    setEmailTouched(true);
+    setPasswordTouched(true);
+    setConfirmPasswordTouched(true);
+
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -86,6 +101,13 @@ export default function RegisterPage() {
     // 4. Validar excepciones de contraseña
     if (!isPasswordValid) {
       setErrorMsg('La contraseña no cumple con los requisitos mínimos de seguridad.');
+      setLoading(false);
+      return;
+    }
+
+    // 5. Validar que las contraseñas coincidan
+    if (password !== confirmPassword) {
+      setErrorMsg('Excepción de Contraseña: Las contraseñas no coinciden.');
       setLoading(false);
       return;
     }
@@ -130,11 +152,17 @@ export default function RegisterPage() {
         setErrorMsg(error.message);
       } else {
         setSuccessMsg('¡Registro completado! Verifica tu correo electrónico para activar tu cuenta.');
-        // Limpiar campos
+        // Limpiar campos y reiniciar estados de tocado
         setNombreCompleto('');
         setFechaNacimiento('');
         setEmail('');
         setPassword('');
+        setConfirmPassword('');
+        setNombreCompletoTouched(false);
+        setFechaNacimientoTouched(false);
+        setEmailTouched(false);
+        setPasswordTouched(false);
+        setConfirmPasswordTouched(false);
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Ocurrió un error al registrarse.');
@@ -201,9 +229,20 @@ export default function RegisterPage() {
                 placeholder="Ej. John Doe"
                 value={nombreCompleto}
                 onChange={(e) => setNombreCompleto(e.target.value)}
+                onBlur={() => setNombreCompletoTouched(true)}
                 className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan transition-all"
               />
             </div>
+            {nombreCompletoTouched && !nombreCompleto.trim() && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * El nombre completo es obligatorio.
+              </p>
+            )}
+            {nombreCompletoTouched && nombreCompleto.trim() && nombreCompleto.trim().length < 3 && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * Debe tener al menos 3 caracteres.
+              </p>
+            )}
           </div>
 
           {/* Fecha de Nacimiento */}
@@ -216,8 +255,19 @@ export default function RegisterPage() {
               <CustomDatePicker
                 value={fechaNacimiento}
                 onChange={(val) => setFechaNacimiento(val)}
+                onBlur={() => setFechaNacimientoTouched(true)}
               />
             </div>
+            {fechaNacimientoTouched && !fechaNacimiento && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * La fecha de nacimiento es obligatoria.
+              </p>
+            )}
+            {fechaNacimientoTouched && fechaNacimiento && !validarEdad(fechaNacimiento) && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * Debes tener al menos 13 años para registrarte en GIMA.
+              </p>
+            )}
           </div>
 
           {/* Correo */}
@@ -233,9 +283,20 @@ export default function RegisterPage() {
                 placeholder="aventurero@gima.ai"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => setEmailTouched(true)}
                 className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan transition-all"
               />
             </div>
+            {emailTouched && !email.trim() && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * El correo electrónico es obligatorio.
+              </p>
+            )}
+            {emailTouched && email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * Introduce una dirección de correo válida.
+              </p>
+            )}
           </div>
 
           {/* Contraseña */}
@@ -251,33 +312,73 @@ export default function RegisterPage() {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onBlur={() => setPasswordTouched(true)}
                 className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan transition-all"
               />
             </div>
+            {passwordTouched && !password && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * La contraseña es obligatoria.
+              </p>
+            )}
+            {passwordTouched && password && !isPasswordValid && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * Requisitos mínimos de seguridad incompletos.
+              </p>
+            )}
 
             {/* Checklist de validación de contraseña */}
             <div className="mt-3 p-3 rounded-lg bg-slate-950/50 border border-slate-900 grid grid-cols-2 gap-2 text-[10px] font-mono">
-              <div className={`flex items-center gap-1.5 ${passLength ? 'text-emerald-400' : 'text-slate-500'}`}>
+              <div className={`flex items-center gap-1.5 ${passLength ? 'text-emerald-400' : ((password || passwordTouched) ? 'text-red-400' : 'text-slate-500')}`}>
                 {passLength ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
                 Mínimo 8 caracteres
               </div>
-              <div className={`flex items-center gap-1.5 ${passHasUpper ? 'text-emerald-400' : 'text-slate-500'}`}>
+              <div className={`flex items-center gap-1.5 ${passHasUpper ? 'text-emerald-400' : ((password || passwordTouched) ? 'text-red-400' : 'text-slate-500')}`}>
                 {passHasUpper ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
                 1 Mayúscula (A-Z)
               </div>
-              <div className={`flex items-center gap-1.5 ${passHasLower ? 'text-emerald-400' : 'text-slate-500'}`}>
+              <div className={`flex items-center gap-1.5 ${passHasLower ? 'text-emerald-400' : ((password || passwordTouched) ? 'text-red-400' : 'text-slate-500')}`}>
                 {passHasLower ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
                 1 Minúscula (a-z)
               </div>
-              <div className={`flex items-center gap-1.5 ${passHasNumber ? 'text-emerald-400' : 'text-slate-500'}`}>
+              <div className={`flex items-center gap-1.5 ${passHasNumber ? 'text-emerald-400' : ((password || passwordTouched) ? 'text-red-400' : 'text-slate-500')}`}>
                 {passHasNumber ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
                 1 Número (0-9)
               </div>
-              <div className={`flex items-center gap-1.5 ${passHasSpecial ? 'text-emerald-400' : 'text-slate-500'}`}>
+              <div className={`flex items-center gap-1.5 ${passHasSpecial ? 'text-emerald-400' : ((password || passwordTouched) ? 'text-red-400' : 'text-slate-500')}`}>
                 {passHasSpecial ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
                 1 Especial (@$!%*?&)
               </div>
             </div>
+          </div>
+
+          {/* Confirmar Contraseña */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 font-mono mb-1 uppercase tracking-wider">
+              Confirmar Contraseña
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <input
+                type="password"
+                required
+                placeholder="••••••••"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                onBlur={() => setConfirmPasswordTouched(true)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan transition-all"
+              />
+            </div>
+            {confirmPasswordTouched && !confirmPassword && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * Confirmar la contraseña es obligatorio.
+              </p>
+            )}
+            {confirmPasswordTouched && confirmPassword && password !== confirmPassword && (
+              <p className="mt-1 text-[11px] text-red-400 font-mono">
+                * Las contraseñas no coinciden.
+              </p>
+            )}
           </div>
 
           {/* Botón enviar */}
