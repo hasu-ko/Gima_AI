@@ -27,6 +27,16 @@ export async function consumirCredito(userId: string): Promise<ConsumirCreditoRe
       MOCK_CREDITS_DATABASE[userId] = 5;
     }
 
+    const isMockAdmin = userId === 'dev-user-12345'; // Coincide con obtenerCreditos
+
+    if (isMockAdmin) {
+      return {
+        success: true,
+        creditosRestantes: 9999,
+        isMock: true,
+      };
+    }
+
     const creditosActuales = MOCK_CREDITS_DATABASE[userId];
 
     if (creditosActuales > 0) {
@@ -47,6 +57,21 @@ export async function consumirCredito(userId: string): Promise<ConsumirCreditoRe
 
   // --- MODO PRODUCCIÓN / DESARROLLO CON SUPABASE REAL ---
   try {
+    // 1. Check si es admin primero
+    const { data: adminCheck } = await supabaseAdmin
+      .from('perfiles')
+      .select('is_admin')
+      .eq('id', userId)
+      .single();
+      
+    if (adminCheck?.is_admin) {
+      return {
+        success: true,
+        creditosRestantes: 9999,
+        isMock: false,
+      };
+    }
+
     // Invocamos la función RPC 'consumir_credito' que creamos en schema.sql
     // Usamos supabaseAdmin (Service Role) para saltarnos el RLS y permitir la actualización desde backend.
     const { data, error } = await supabaseAdmin.rpc('consumir_credito', {
@@ -91,21 +116,26 @@ export async function consumirCredito(userId: string): Promise<ConsumirCreditoRe
  * Obtiene los créditos disponibles de un usuario.
  * Soporta modo real (Supabase) y simulado.
  */
-export async function obtenerCreditos(userId: string): Promise<{ creditos: number; isMock: boolean }> {
+export async function obtenerCreditos(userId: string): Promise<{ creditos: number; isMock: boolean; isAdmin?: boolean }> {
   if (!isSupabaseConfigured()) {
     if (MOCK_CREDITS_DATABASE[userId] === undefined) {
       MOCK_CREDITS_DATABASE[userId] = 5;
     }
+    // Si estamos en local y el email tiene un indicio de admin o algo así (opcional), 
+    // pero para mock general, dejamos lo actual, o forzamos 9999 si es el user hardcodeado de dev.
+    const isMockAdmin = userId === 'dev-user-12345'; // Ejemplo simple
+    
     return {
-      creditos: MOCK_CREDITS_DATABASE[userId],
+      creditos: isMockAdmin ? 9999 : MOCK_CREDITS_DATABASE[userId],
       isMock: true,
+      isAdmin: isMockAdmin
     };
   }
 
   try {
     const { data, error } = await supabaseAdmin
       .from('perfiles')
-      .select('creditos_disponibles')
+      .select('creditos_disponibles, is_admin')
       .eq('id', userId)
       .single();
 
@@ -119,7 +149,7 @@ export async function obtenerCreditos(userId: string): Promise<{ creditos: numbe
         
         if (authError || !authData?.user) {
           console.error('Error al obtener usuario de Auth para auto-crear perfil:', authError);
-          return { creditos: 0, isMock: false };
+          return { creditos: 0, isMock: false, isAdmin: false };
         }
 
         const email = authData.user.email || '';
@@ -134,9 +164,10 @@ export async function obtenerCreditos(userId: string): Promise<{ creditos: numbe
             email,
             nombre_completo: name,
             fecha_nacimiento: birthDate,
-            creditos_disponibles: 5
+            creditos_disponibles: 5,
+            is_admin: false
           })
-          .select('creditos_disponibles')
+          .select('creditos_disponibles, is_admin')
           .single();
 
         if (insertError) {
@@ -147,13 +178,14 @@ export async function obtenerCreditos(userId: string): Promise<{ creditos: numbe
           if (insertError.code === 'PGRST204' || insertError.message?.includes('fecha_nacimiento') || insertError.message?.includes('nombre_completo')) {
             console.error('⚠️ ALERTA DE CONFIGURACIÓN: Faltan las columnas "nombre_completo" y/o "fecha_nacimiento" en tu tabla "perfiles" en Supabase.\n\nEjecuta las siguientes consultas SQL en el SQL Editor de tu panel de Supabase:\n\nALTER TABLE public.perfiles ADD COLUMN IF NOT EXISTS nombre_completo TEXT;\nALTER TABLE public.perfiles ADD COLUMN IF NOT EXISTS fecha_nacimiento DATE;\n');
           }
-          return { creditos: 0, isMock: false };
+          return { creditos: 0, isMock: false, isAdmin: false };
         }
 
         console.log(`[Credits] Perfil auto-creado con éxito para ${email} (5 créditos gratuitos asignados).`);
         return {
           creditos: newProfile?.creditos_disponibles ?? 5,
-          isMock: false
+          isMock: false,
+          isAdmin: newProfile?.is_admin ?? false
         };
       }
 
@@ -161,16 +193,26 @@ export async function obtenerCreditos(userId: string): Promise<{ creditos: numbe
       if (error.code === '42P01') {
         console.error('⚠️ ALERTA DE CONFIGURACIÓN: La tabla "public.perfiles" no existe en Supabase. Por favor, copia y pega el archivo "schema.sql" en el SQL Editor de tu panel de Supabase.');
       }
-      return { creditos: 0, isMock: false };
+      return { creditos: 0, isMock: false, isAdmin: false };
+    }
+
+    // Si es admin, tiene créditos ilimitados (9999) para UI
+    if (data?.is_admin) {
+      return {
+        creditos: 9999,
+        isMock: false,
+        isAdmin: true
+      };
     }
 
     return {
       creditos: data?.creditos_disponibles ?? 0,
       isMock: false,
+      isAdmin: false
     };
   } catch (err) {
     console.error('Excepción al obtener créditos en Supabase:', err);
-    return { creditos: 0, isMock: false };
+    return { creditos: 0, isMock: false, isAdmin: false };
   }
 }
 

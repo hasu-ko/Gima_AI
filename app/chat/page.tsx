@@ -6,12 +6,21 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { 
   Gamepad2, Sparkles, Send, Coins, LogOut, MessageSquare, 
   Search, ShieldAlert, CreditCard, Check, X, RefreshCw, Zap,
-  Plus, Trash2, Menu, Settings, Camera, User, Lock
+  Plus, Trash2, Menu, Settings, Camera, User, Lock, ExternalLink, Globe
 } from 'lucide-react';
+
+interface RAGSource {
+  id: number;
+  title: string;
+  url: string;
+}
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  fuentes?: RAGSource[];
+  modo?: string;
+  modelo?: string;
 }
 
 interface Conversation {
@@ -22,9 +31,57 @@ interface Conversation {
   updated_at: string;
 }
 
+// Función lightweight para renderizar markdown básico en HTML
+function renderMarkdown(text: string): string {
+  if (!text) return '';
+  
+  let html = text
+    // Escapar HTML básico
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    // Code blocks (antes de otras transformaciones)
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Headers
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // Bold y italic
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    // Horizontal rule
+    .replace(/^---$/gm, '<hr />')
+    // Listas no-ordenadas  
+    .replace(/^[-•] (.+)$/gm, '<li>$1</li>')
+    // Citas [Fuente N] resaltadas
+    .replace(/\[Fuente (\d+)\]/g, '<strong style="color:#67e8f9">[Fuente $1]</strong>')
+    .replace(/\[(\d+)\]/g, '<strong style="color:#67e8f9">[$1]</strong>')
+    // Line breaks (doble newline = párrafo, single = br)
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br />');
+  
+  // Envolver listas
+  html = html.replace(/(<li>.*?<\/li>(?:<br \/>)?)+/g, (match) => {
+    return '<ul>' + match.replace(/<br \/>/g, '') + '</ul>';
+  });
+  
+  // Envolver en párrafo
+  html = '<p>' + html + '</p>';
+  
+  // Limpiar párrafos vacíos
+  html = html.replace(/<p>\s*<\/p>/g, '');
+  
+  return html;
+}
+
 export default function ChatPage() {
   const router = useRouter();
-  const [user, setUser] = useState<{ id: string; email: string; name: string; avatar?: string; isMock?: boolean } | null>(null);
+  const [user, setUser] = useState<{ id: string; email: string; name: string; avatar?: string; isMock?: boolean; isAdmin?: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Dropdown del usuario
@@ -65,6 +122,7 @@ export default function ChatPage() {
   const [inputMsg, setInputMsg] = useState('');
   const [sending, setSending] = useState(false);
   const [credits, setCredits] = useState(5);
+  const [searchModo, setSearchModo] = useState<'completo' | 'rapido'>('completo');
   const [isCreditsMock, setIsCreditsMock] = useState(true);
 
   // Estados de multi-conversación
@@ -101,6 +159,8 @@ export default function ChatPage() {
         const mockSessionStr = localStorage.getItem('gima_mock_session');
         if (mockSessionStr) {
           const mockUser = JSON.parse(mockSessionStr);
+          // Set mock admin for testing purposes
+          if (mockUser.id === 'dev-user-12345') mockUser.isAdmin = true;
           setUser(mockUser);
           await syncCredits(mockUser.id);
           await loadConversations(mockUser.id, true);
@@ -115,6 +175,7 @@ export default function ChatPage() {
         if (session && session.user) {
           let profileName = '';
           let profileAvatar = '';
+          let profileIsAdmin = false;
           try {
             const { data: profile } = await supabase
               .from('perfiles')
@@ -127,6 +188,9 @@ export default function ChatPage() {
               if ('avatar_url' in profile) {
                 profileAvatar = profile.avatar_url || '';
               }
+              if ('is_admin' in profile) {
+                profileIsAdmin = profile.is_admin || false;
+              }
             }
           } catch (e) {
             console.warn('Error reading from perfiles table:', e);
@@ -137,7 +201,8 @@ export default function ChatPage() {
             email: session.user.email ?? '',
             name: profileName || session.user.user_metadata?.nombre_completo || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Viajero',
             avatar: profileAvatar || session.user.user_metadata?.avatar_url || '',
-            isMock: false
+            isMock: false,
+            isAdmin: profileIsAdmin
           };
           setUser(realUser);
           await syncCredits(realUser.id);
@@ -303,16 +368,20 @@ export default function ChatPage() {
   }, [messages, sending]);
 
   // Sincronizar créditos con el backend
-  const syncCredits = async (userId: string) => {
+  const syncCredits = async (uid: string) => {
     try {
-      const response = await fetch(`/api/credits?userId=${userId}`);
+      const response = await fetch(`/api/credits?userId=${uid}`);
       if (response.ok) {
         const data = await response.json();
-        setCredits(data.credits);
+        setCredits(data.creditos);
         setIsCreditsMock(data.isMock);
+        // Ensure UI updates user role if server says they're an admin
+        if (data.isAdmin && user && !user.isAdmin) {
+            setUser({ ...user, isAdmin: true });
+        }
       }
-    } catch (err) {
-      console.error('Error al sincronizar créditos:', err);
+    } catch (e) {
+      console.error('Error fetching credits:', e);
     }
   };
 
@@ -552,19 +621,20 @@ export default function ChatPage() {
         });
       }
 
-      // 3. Llamar al endpoint de chat para la respuesta del bot
+      // 3. Llamar al endpoint de chat para la respuesta del bot (RAG Agent)
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: user?.id,
           message: queryText,
+          modo: searchModo,
         }),
       });
 
       const data = await response.json();
 
-      if (response.status === 402 || !data.success) {
+      if (response.status === 402) {
         setCredits(0);
         setShowPaywall(true);
         const botErrorMsg: Message = { 
@@ -572,15 +642,35 @@ export default function ChatPage() {
           content: '⚠️ Lo siento, has agotado tus créditos de consulta diaria. Por favor compra más créditos o suscríbete para continuar.' 
         };
         setMessages([...newMessages, botErrorMsg]);
+      } else if (!data.success) {
+        // Error del agente RAG (503 = no disponible, 502 = error del agente)
+        if (data.creditsRemaining !== undefined) {
+          setCredits(data.creditsRemaining);
+        }
+        const errorDetail = data.error || 'Error desconocido al procesar la consulta.';
+        const isRagDown = response.status === 503;
+        const botErrorMsg: Message = { 
+          role: 'assistant', 
+          content: isRagDown
+            ? `🔌 **El agente de búsqueda no está disponible.**\n\nAsegúrate de que el servidor FastAPI esté corriendo:\n\`\`\`\ncd fastapi-rag-search-agent\nuvicorn main:app --reload\n\`\`\`\n\n_Detalle: ${errorDetail}_`
+            : `⚠️ **Error del agente de búsqueda:**\n\n${errorDetail}\n\n_Intenta de nuevo o reformula tu pregunta._`
+        };
+        setMessages([...newMessages, botErrorMsg]);
       } else {
         setCredits(data.creditsRemaining);
         
         const responseText = data.response;
-        const botMessage: Message = { role: 'assistant', content: responseText };
+        const botMessage: Message = { 
+          role: 'assistant', 
+          content: responseText,
+          fuentes: data.fuentes || [],
+          modo: data.modo,
+          modelo: data.modelo,
+        };
         
         // Efecto de máquina de escribir
         let charIndex = 0;
-        setMessages([...newMessages, { role: 'assistant', content: '' }]);
+        setMessages([...newMessages, { role: 'assistant', content: '', fuentes: [], modo: data.modo, modelo: data.modelo }]);
         
         if (typewriterIntervalRef.current) {
           clearInterval(typewriterIntervalRef.current);
@@ -601,6 +691,16 @@ export default function ChatPage() {
               clearInterval(typewriterIntervalRef.current);
               typewriterIntervalRef.current = null;
             }
+            
+            // Actualizar las fuentes al final de la animación
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'assistant') {
+                last.fuentes = botMessage.fuentes;
+              }
+              return next;
+            });
             
             // Persistir el mensaje del bot al terminar la animación
             if (isMockUser) {
@@ -711,6 +811,11 @@ export default function ChatPage() {
                     </span>
                     <div className="text-[9px] tracking-widest font-mono text-slate-500 uppercase">
                       Assistant
+                      {user?.isAdmin && (
+                        <span className="ml-2 px-1 rounded bg-red-500/20 text-red-400 border border-red-500/30">
+                          ADMIN
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -812,6 +917,20 @@ export default function ChatPage() {
                         <Settings className="w-3.5 h-3.5 text-accent-cyan" />
                         Ajustes de Cuenta
                       </button>
+                      
+                      {user?.isAdmin && (
+                        <button
+                          onClick={() => {
+                            setShowUserMenu(false);
+                            router.push('/admin');
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-accent-violet hover:text-white hover:bg-slate-900 rounded-lg transition-all cursor-pointer text-left font-medium"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-accent-violet" />
+                          Panel de Admin
+                        </button>
+                      )}
+                      
                       <div className="h-[1px] bg-slate-900 my-1" />
                       <button
                         onClick={() => {
@@ -1068,7 +1187,7 @@ export default function ChatPage() {
                     question: '¿Qué equipos hacen mejor sinergia con Acheron en Honkai Star Rail?'
                   },
                   {
-                    title: 'Meta de Foros (Perplexity)',
+                    title: 'Búsqueda Web (RAG)',
                     desc: '¿Qué se dice en Reddit sobre la última actualización del parche?',
                     question: '¿Qué se dice en Reddit sobre los cambios del meta en el último parche de Genshin Impact?'
                   }
@@ -1108,7 +1227,41 @@ export default function ChatPage() {
                         : 'glass-panel text-slate-200 border border-slate-800/80 rounded-bl-none'
                     }`}
                   >
-                    {msg.content}
+                    {msg.role === 'assistant' ? (
+                      <div>
+                        <div className="chat-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                        {msg.fuentes && msg.fuentes.length > 0 && (
+                          <div className="sources-panel">
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <Globe className="w-3 h-3 text-accent-cyan" />
+                              <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider">Fuentes</span>
+                              {msg.modo && (
+                                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-accent-violet/10 border border-accent-violet/20 text-accent-violet">
+                                  {msg.modo}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {msg.fuentes.map((src) => (
+                                <a
+                                  key={src.id}
+                                  href={src.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="source-chip"
+                                  title={src.url}
+                                >
+                                  <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                                  [{src.id}] {src.title || new URL(src.url).hostname}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      msg.content
+                    )}
                   </div>
 
                   {msg.role === 'user' && (
@@ -1126,12 +1279,16 @@ export default function ChatPage() {
                     G
                   </div>
                   <div className="glass-panel text-slate-400 border border-slate-800/80 rounded-xl rounded-bl-none p-4 text-sm flex items-center gap-2.5">
-                    <div className="flex gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-accent-cyan animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <div className="w-1.5 h-1.5 rounded-full bg-accent-cyan animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <div className="w-1.5 h-1.5 rounded-full bg-accent-cyan animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <div className="flex gap-1.5">
+                      <div className="thinking-dot" />
+                      <div className="thinking-dot" />
+                      <div className="thinking-dot" />
                     </div>
-                    <span className="font-mono text-xs">Escaneando Postgres & Consultando Perplexity...</span>
+                    <span className="font-mono text-xs">
+                      {searchModo === 'completo' 
+                        ? 'Buscando en la web, leyendo páginas y sintetizando con IA...'
+                        : 'Búsqueda rápida en la web...'}
+                    </span>
                   </div>
                 </div>
               )}
@@ -1166,9 +1323,29 @@ export default function ChatPage() {
             </button>
           </form>
           
-          <div className="mt-3 text-center">
+          <div className="mt-3 flex items-center justify-center gap-4">
+            <div className="modo-toggle">
+              <button 
+                type="button"
+                className={searchModo === 'rapido' ? 'active' : ''}
+                onClick={() => setSearchModo('rapido')}
+                title="Solo snippets del buscador (más veloz)"
+              >
+                ⚡ Rápido
+              </button>
+              <button 
+                type="button"
+                className={searchModo === 'completo' ? 'active' : ''}
+                onClick={() => setSearchModo('completo')}
+                title="Busca y lee páginas completas (más detalle)"
+              >
+                🔍 Completo
+              </button>
+            </div>
             <p className="text-[10px] font-mono text-slate-500">
-              GIMA consume créditos para consultas externas. Los créditos se reinician diariamente.
+              {user?.isAdmin 
+                ? '👑 Modo Administrador: Tienes consultas ilimitadas.'
+                : 'GIMA usa IA para buscar en la web y sintetizar respuestas con fuentes citadas.'}
             </p>
           </div>
         </div>
@@ -1216,7 +1393,7 @@ export default function ChatPage() {
                 <div className="p-5 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-slate-700 transition-all flex justify-between items-center group">
                   <div className="space-y-1">
                     <h3 className="font-bold text-sm text-slate-200">Gacha Mini Pack</h3>
-                    <p className="text-xs text-slate-400">+20 consultas al Meta de Perplexity</p>
+                    <p className="text-xs text-slate-400">+20 consultas al agente RAG con IA</p>
                     <span className="inline-block text-[9px] bg-slate-900 text-slate-400 font-mono px-2 py-0.5 rounded border border-slate-800">
                       Un solo pago
                     </span>

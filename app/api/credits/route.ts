@@ -10,8 +10,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { creditos, isMock } = await obtenerCreditos(userId);
-    return NextResponse.json({ credits: creditos, isMock });
+    const { creditos, isMock, isAdmin } = await obtenerCreditos(userId);
+    return NextResponse.json({ creditos, isMock, isAdmin });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Error al obtener créditos.' }, { status: 500 });
   }
