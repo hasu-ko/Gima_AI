@@ -150,23 +150,23 @@ export default function LandingPage() {
         
         <div className="max-w-4xl mx-auto px-6 text-center relative z-10 space-y-8">
           {/* Badge */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent-cyan/10 border border-accent-cyan/20 text-accent-cyan text-xs font-mono tracking-wide">
-            <Sparkles className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent-cyan/10 border border-accent-cyan/20 text-accent-cyan text-xs font-mono tracking-wide animate-in fade-in slide-in-from-bottom-3 duration-500">
+            <Sparkles className="w-3.5 h-3.5 anime-pulse-slow" />
             <span>Consultas Inteligentes de Lore y Meta</span>
           </div>
 
           {/* Título Principal */}
-          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight leading-[1.1] text-white">
+          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight leading-[1.1] text-white animate-in fade-in slide-in-from-bottom-4 duration-700">
             Descubre el Lore profundo y domina el <span className="gradient-text-gaming">Meta Actual</span>
           </h1>
 
           {/* Subtítulo */}
-          <p className="text-slate-400 text-base md:text-lg max-w-2xl mx-auto font-normal leading-relaxed">
+          <p className="text-slate-400 text-base md:text-lg max-w-2xl mx-auto font-normal leading-relaxed animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150 fill-mode-both">
             GIMA es la primera plataforma de inteligencia artificial optimizada para la comunidad gacha. Obtén respuestas detalladas del Lore fijo de historias y rastrea el Meta online al instante.
           </p>
 
           {/* CTAs */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-300 fill-mode-both">
             <button
               onClick={handleCTA}
               className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-accent-violet to-accent-cyan text-white font-bold rounded-xl shadow-lg shadow-accent-violet/20 hover:opacity-95 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
@@ -201,7 +201,7 @@ export default function LandingPage() {
       </section>
 
       {/* CÓMO FUNCIONA */}
-      <section id="funcionamiento" className="py-20 border-t border-slate-900/50 bg-slate-950/20 relative">
+      <section id="funcionamiento" className="py-20 border-t border-slate-900/50 bg-slate-950/20 relative scroll-mt-16">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center max-w-xl mx-auto mb-16 space-y-3">
             <h2 className="text-xs font-bold uppercase tracking-widest text-accent-pink font-mono">Tecnología Inteligente</h2>
@@ -247,7 +247,7 @@ export default function LandingPage() {
             ].map((flow, i) => {
               const IconComp = flow.icon;
               return (
-                <div key={i} className="p-6 rounded-xl glass-panel border border-slate-900 hover:border-slate-800/80 transition-all flex flex-col justify-between space-y-4 group">
+                <div key={i} className="p-6 rounded-xl glass-panel-interactive flex flex-col justify-between space-y-4 group">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-mono text-slate-600 font-bold">{flow.step}</span>
                     <IconComp className={`w-5 h-5 ${flow.color}`} />
@@ -264,7 +264,7 @@ export default function LandingPage() {
       </section>
 
       {/* CARACTERÍSTICAS */}
-      <section id="caracteristicas" className="py-20 relative">
+      <section id="caracteristicas" className="py-20 relative scroll-mt-16">
         {/* Luz decorativa */}
         <div className="absolute right-0 top-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-accent-pink/5 blur-[120px] pointer-events-none" />
 
@@ -281,7 +281,7 @@ export default function LandingPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {/* Feature 1 */}
-            <div className="p-6 rounded-xl glass-panel border border-slate-900 hover:border-slate-800/60 transition-all space-y-4">
+            <div className="p-6 rounded-xl glass-panel-interactive space-y-4">
               <div className="w-10 h-10 rounded-lg bg-accent-cyan/10 border border-accent-cyan/25 flex items-center justify-center text-accent-cyan">
                 <BookOpen className="w-5 h-5" />
               </div>
@@ -294,7 +294,7 @@ export default function LandingPage() {
             </div>
 
             {/* Feature 2 */}
-            <div className="p-6 rounded-xl glass-panel border border-slate-900 hover:border-slate-800/60 transition-all space-y-4">
+            <div className="p-6 rounded-xl glass-panel-interactive space-y-4">
               <div className="w-10 h-10 rounded-lg bg-accent-violet/10 border border-accent-violet/25 flex items-center justify-center text-accent-violet">
                 <Search className="w-5 h-5" />
               </div>
@@ -307,7 +307,7 @@ export default function LandingPage() {
             </div>
 
             {/* Feature 3 */}
-            <div className="p-6 rounded-xl glass-panel border border-slate-900 hover:border-slate-800/60 transition-all space-y-4">
+            <div className="p-6 rounded-xl glass-panel-interactive space-y-4">
               <div className="w-10 h-10 rounded-lg bg-accent-pink/10 border border-accent-pink/25 flex items-center justify-center text-accent-pink">
                 <Cpu className="w-5 h-5" />
               </div>
@@ -323,7 +323,7 @@ export default function LandingPage() {
       </section>
 
       {/* PLANES / MONETIZACIÓN */}
-      <section id="precios" className="py-20 border-t border-slate-900/50 bg-slate-950/10 relative">
+      <section id="precios" className="py-20 border-t border-slate-900/50 bg-slate-950/10 relative scroll-mt-16">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center max-w-xl mx-auto mb-16 space-y-3">
             <h2 className="text-xs font-bold uppercase tracking-widest text-accent-violet font-mono">Precios Claros</h2>
@@ -371,7 +371,7 @@ export default function LandingPage() {
             </div>
 
             {/* Plan Pro */}
-            <div className="p-8 rounded-xl bg-gradient-to-br from-accent-violet/10 to-accent-pink/5 border border-accent-violet/40 flex flex-col justify-between space-y-6 relative overflow-hidden">
+            <div className="p-8 rounded-xl bg-gradient-to-br from-accent-violet/10 to-accent-pink/5 border border-accent-violet/40 hover:border-accent-pink/50 hover:shadow-[0_0_30px_rgba(139,92,246,0.15)] hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between space-y-6 relative overflow-hidden">
               <div className="absolute top-0 right-8 bg-accent-pink text-white text-[8px] font-extrabold uppercase font-mono px-3 py-1 rounded-b shadow-sm tracking-wider">
                 Recomendado
               </div>

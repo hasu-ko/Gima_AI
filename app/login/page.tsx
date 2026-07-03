@@ -3,12 +3,13 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { Mail, Lock, Gamepad2, Sparkles, LogIn, ArrowRight, Info } from 'lucide-react';
+import { Mail, Lock, Gamepad2, Sparkles, LogIn, ArrowRight, Info, Eye, EyeOff, RefreshCw } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export default function LoginPage() {
         setSuccessMsg('¡Modo Desarrollo Local activado con éxito! Redirigiendo...');
         setLoading(false);
         setTimeout(() => {
-          router.push('/');
+          router.push('/chat');
         }, 1000);
       }, 800);
       return;
@@ -55,9 +56,10 @@ export default function LoginPage() {
       if (error) {
         setErrorMsg(error.message);
       } else if (data.user) {
+        localStorage.removeItem('gima_mock_session');
         setSuccessMsg('¡Inicio de sesión correcto! Entrando al sistema...');
         setTimeout(() => {
-          router.push('/');
+          router.push('/chat');
         }, 1000);
       }
     } catch (err: any) {
@@ -77,7 +79,7 @@ export default function LoginPage() {
       name: 'Viajero_Gacha',
       isMock: true
     }));
-    router.push('/');
+    router.push('/chat');
   };
 
   return (
@@ -87,7 +89,7 @@ export default function LoginPage() {
       <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-80 h-80 rounded-full bg-accent-cyan/10 blur-[120px] pointer-events-none" />
 
       {/* Tarjeta de Login Glassmorphic con Borde Neón Violeta */}
-      <div className="relative w-full max-w-md glass-panel neon-border-violet rounded-2xl p-8 shadow-2xl transition-all duration-500 overflow-hidden">
+      <div className="relative w-full max-w-md glass-panel neon-border-violet rounded-2xl p-8 shadow-2xl transition-all duration-500 overflow-hidden animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-500">
         
         {/* Adorno brillante en la esquina superior derecha */}
         <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-accent-cyan to-transparent opacity-10 rounded-bl-full pointer-events-none" />
@@ -165,13 +167,22 @@ export default function LoginPage() {
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan transition-all"
+                className="w-full pl-10 pr-11 py-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan transition-all"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                tabIndex={-1}
+                title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-accent-cyan transition-colors cursor-pointer"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 
@@ -182,7 +193,7 @@ export default function LoginPage() {
               disabled={loading}
               className="col-span-2 md:col-span-1 w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-gradient-to-r from-accent-violet to-accent-cyan text-white text-xs font-bold uppercase tracking-wider hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
             >
-              <LogIn className="w-4 h-4" />
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
             <button

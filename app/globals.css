@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 :root {
   --background: #06060c;
@@ -222,6 +223,109 @@ body {
   margin: 0.75em 0;
 }
 
+/* Figura de imagen generada por el agente RAG
+   — Bloque centrado, sin float, sin cortes.
+   El texto aparece arriba e inmediatamente debajo de la imagen. */
+.chat-image-figure {
+  display: block;
+  clear: both;
+  margin: 1em auto;
+  width: fit-content;
+  max-width: min(100%, 420px);
+  border-radius: 12px;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  box-shadow: 0 6px 24px rgba(6, 182, 212, 0.12), 0 2px 8px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  background: rgba(15, 15, 30, 0.6);
+}
+
+.chat-image-figure img {
+  display: block;
+  /* ancho 100% del figure, alto natural — nunca se recorta */
+  width: 100%;
+  height: auto;
+  /* tope razonable para imágenes muy altas: el resto se ve haciendo scroll */
+  max-height: 480px;
+  object-fit: contain;
+  background: rgba(10, 10, 20, 0.8);
+}
+
+.chat-image-figure figcaption {
+  font-size: 0.68em;
+  color: rgba(148, 163, 184, 0.65);
+  text-align: center;
+  padding: 0.3em 0.75em;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
+}
+
+/* En móvil: ancho completo */
+@media (max-width: 640px) {
+  .chat-image-figure {
+    max-width: 100%;
+    border-radius: 8px;
+  }
+  .chat-image-figure img {
+    max-height: 300px;
+  }
+}
+
+/* Ya no hay float, pero mantenemos ::after por si otros elementos lo usan */
+.chat-markdown::after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+/* Fallback: img sueltas (sin figure) siguen siendo responsivas */
+.chat-markdown img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  box-shadow: 0 4px 16px rgba(6, 182, 212, 0.1);
+  margin: 0.75em auto;
+}
+
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  font-size: 0.9em;
+  display: block;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.chat-markdown th {
+  background: rgba(139, 92, 246, 0.12);
+  color: #a5f3fc;
+  font-weight: 700;
+  text-align: left;
+  padding: 0.5em 0.75em;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.3);
+  white-space: nowrap;
+}
+
+.chat-markdown td {
+  padding: 0.45em 0.75em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: top;
+}
+
+.chat-markdown tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-markdown tbody tr:hover {
+  background: rgba(6, 182, 212, 0.05);
+}
+
 /* Panel de fuentes citadas por el RAG agent */
 .sources-panel {
   margin-top: 0.75em;
@@ -288,6 +392,23 @@ body {
 .modo-toggle button:hover:not(.active) {
   color: #94a3b8;
   background: rgba(255, 255, 255, 0.03);
+}
+
+/* Cursor parpadeante mientras el asistente "escribe" */
+.typing-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #06b6d4, #8b5cf6);
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
+  animation: cursor-blink 0.8s steps(2, start) infinite;
+}
+
+@keyframes cursor-blink {
+  to { visibility: hidden; }
 }
 
 /* Animación de pensamiento del agente */

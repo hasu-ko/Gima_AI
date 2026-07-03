@@ -19,9 +19,27 @@ interface RAGResponse {
   modelo: string;
 }
 
+interface HistoryTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+// Sanea el historial recibido del cliente: solo turnos válidos, últimos 8
+function sanitizeHistory(history: unknown): HistoryTurn[] {
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter((t): t is HistoryTurn =>
+      !!t && typeof t === 'object' &&
+      (t.role === 'user' || t.role === 'assistant') &&
+      typeof t.content === 'string' && t.content.trim().length > 0
+    )
+    .slice(-8)
+    .map(t => ({ role: t.role, content: t.content.slice(0, 4000) }));
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { userId, message, modo } = await request.json();
+    const { userId, message, modo, history } = await request.json();
 
     if (!userId || !message) {
       return NextResponse.json(
@@ -53,6 +71,7 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           query: message,
           modo: modo || 'completo',
+          historial: sanitizeHistory(history),
         }),
       });
 

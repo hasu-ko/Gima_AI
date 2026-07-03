@@ -3,11 +3,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { 
-  Gamepad2, Sparkles, Send, Coins, LogOut, MessageSquare, 
+import {
+  Gamepad2, Sparkles, Send, Coins, LogOut, MessageSquare,
   Search, ShieldAlert, CreditCard, Check, X, RefreshCw, Zap,
-  Plus, Trash2, Menu, Settings, Camera, User, Lock, ExternalLink, Globe
+  Plus, Trash2, Menu, Settings, Camera, User, Lock, ExternalLink, Globe, Copy
 } from 'lucide-react';
+
+// Fases que se muestran mientras el agente investiga (rotan cada pocos segundos)
+const SENDING_PHASES: Record<'completo' | 'rapido', string[]> = {
+  completo: [
+    'Buscando en la web...',
+    'Leyendo las páginas más relevantes...',
+    'Buscando una imagen del personaje...',
+    'Sintetizando la respuesta con IA...',
+    'Dando los últimos toques...',
+  ],
+  rapido: [
+    'Búsqueda rápida en la web...',
+    'Sintetizando la respuesta con IA...',
+    'Casi listo...',
+  ],
+};
 
 interface RAGSource {
   id: number;
@@ -31,10 +47,44 @@ interface Conversation {
   updated_at: string;
 }
 
+// Convierte bloques de tabla Markdown (| a | b |) en <table> HTML
+function renderTables(text: string): string {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  const splitRow = (row: string) =>
+    row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+
+  let i = 0;
+  while (i < lines.length) {
+    const isRow = /^\s*\|.+\|\s*$/.test(lines[i]);
+    const isSeparator = i + 1 < lines.length && /^\s*\|[\s:\-|]+\|\s*$/.test(lines[i + 1]);
+    if (isRow && isSeparator) {
+      const headers = splitRow(lines[i]);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && /^\s*\|.+\|\s*$/.test(lines[i])) {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      out.push(
+        '<table><thead><tr>' +
+        headers.map(h => `<th>${h}</th>`).join('') +
+        '</tr></thead><tbody>' +
+        rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('') +
+        '</tbody></table>'
+      );
+    } else {
+      out.push(lines[i]);
+      i++;
+    }
+  }
+  return out.join('\n');
+}
+
 // Función lightweight para renderizar markdown básico en HTML
 function renderMarkdown(text: string): string {
   if (!text) return '';
-  
+
   let html = text
     // Escapar HTML básico
     .replace(/&/g, '&amp;')
@@ -52,30 +102,41 @@ function renderMarkdown(text: string): string {
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Imágenes ![alt](url) — antes que los links para que no las capturen
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g,
+      '<figure class="chat-image-figure"><img src="$2" alt="$1" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.style.display=\'none\'" /><figcaption>$1</figcaption></figure>')
     // Links
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
     // Horizontal rule
     .replace(/^---$/gm, '<hr />')
-    // Listas no-ordenadas  
+    // Listas no-ordenadas
     .replace(/^[-•] (.+)$/gm, '<li>$1</li>')
     // Citas [Fuente N] resaltadas
     .replace(/\[Fuente (\d+)\]/g, '<strong style="color:#67e8f9">[Fuente $1]</strong>')
-    .replace(/\[(\d+)\]/g, '<strong style="color:#67e8f9">[$1]</strong>')
+    .replace(/\[(\d+)\]/g, '<strong style="color:#67e8f9">[$1]</strong>');
+
+  // Tablas Markdown (antes de convertir los saltos de línea)
+  html = renderTables(html);
+
+  html = html
     // Line breaks (doble newline = párrafo, single = br)
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br />');
-  
+
   // Envolver listas
   html = html.replace(/(<li>.*?<\/li>(?:<br \/>)?)+/g, (match) => {
     return '<ul>' + match.replace(/<br \/>/g, '') + '</ul>';
   });
-  
+
+  // Quitar <br /> huérfanos alrededor de las tablas
+  html = html.replace(/<br \/>(<table>)/g, '$1').replace(/(<\/table>)<br \/>/g, '$1');
+
   // Envolver en párrafo
   html = '<p>' + html + '</p>';
-  
+
   // Limpiar párrafos vacíos
   html = html.replace(/<p>\s*<\/p>/g, '');
-  
+
   return html;
 }
 
@@ -136,7 +197,13 @@ export default function ChatPage() {
   const [buyingPlan, setBuyingPlan] = useState<string | null>(null);
   const [rechargeSuccess, setRechargeSuccess] = useState(false);
 
+  // Feedback de UI: copiar mensaje, cursor de escritura y fases de búsqueda
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [sendingPhase, setSendingPhase] = useState(0);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const typewriterIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Limpieza del intervalo de escritura al desmontar
@@ -148,25 +215,41 @@ export default function ChatPage() {
     };
   }, []);
 
+  // Rotar las fases del indicador mientras el agente investiga
+  useEffect(() => {
+    if (!sending) {
+      setSendingPhase(0);
+      return;
+    }
+    const id = setInterval(() => setSendingPhase((p) => p + 1), 3000);
+    return () => clearInterval(id);
+  }, [sending]);
+
+  // Copiar el contenido de un mensaje del asistente al portapapeles
+  const handleCopyMessage = async (idx: number, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx(null), 2000);
+    } catch (err) {
+      console.error('No se pudo copiar al portapapeles:', err);
+    }
+  };
+
   // Cargar sesión del usuario al montar
   useEffect(() => {
     async function checkAuth() {
-      const isDbConfigured = isSupabaseConfigured();
-      if (isDbConfigured) {
-        localStorage.removeItem('gima_mock_session');
-      } else {
-        // 1. Verificar sesión simulada
-        const mockSessionStr = localStorage.getItem('gima_mock_session');
-        if (mockSessionStr) {
-          const mockUser = JSON.parse(mockSessionStr);
-          // Set mock admin for testing purposes
-          if (mockUser.id === 'dev-user-12345') mockUser.isAdmin = true;
-          setUser(mockUser);
-          await syncCredits(mockUser.id);
-          await loadConversations(mockUser.id, true);
-          setLoading(false);
-          return;
-        }
+      // 1. Verificar sesión simulada (Invitado o Entorno Local)
+      const mockSessionStr = localStorage.getItem('gima_mock_session');
+      if (mockSessionStr) {
+        const mockUser = JSON.parse(mockSessionStr);
+        // Set mock admin for testing purposes
+        if (mockUser.id === 'dev-user-12345') mockUser.isAdmin = true;
+        setUser(mockUser);
+        await syncCredits(mockUser.id);
+        await loadConversations(mockUser.id, true);
+        setLoading(false);
+        return;
       }
 
       // 2. Verificar sesión real de Supabase
@@ -621,7 +704,14 @@ export default function ChatPage() {
         });
       }
 
-      // 3. Llamar al endpoint de chat para la respuesta del bot (RAG Agent)
+      // 3. Llamar al endpoint de chat para la respuesta del bot (RAG Agent).
+      // Se envía el historial de la conversación activa (sin el mensaje nuevo ni
+      // mensajes de error) como memoria, para que entienda preguntas de seguimiento.
+      const history = messages
+        .filter(m => m.content && !m.content.startsWith('⚠️') && !m.content.startsWith('🔌'))
+        .slice(-8)
+        .map(m => ({ role: m.role, content: m.content }));
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -629,6 +719,7 @@ export default function ChatPage() {
           userId: user?.id,
           message: queryText,
           modo: searchModo,
+          history,
         }),
       });
 
@@ -668,30 +759,37 @@ export default function ChatPage() {
           modelo: data.modelo,
         };
         
-        // Efecto de máquina de escribir
+        // Efecto de máquina de escribir adaptativo: revela bloques de caracteres
+        // para que toda respuesta termine en ~1.5s sin importar su longitud.
+        const TYPEWRITER_DURATION_MS = 1500;
+        const TICK_MS = 16;
+        const charsPerTick = Math.max(3, Math.ceil(responseText.length / (TYPEWRITER_DURATION_MS / TICK_MS)));
         let charIndex = 0;
         setMessages([...newMessages, { role: 'assistant', content: '', fuentes: [], modo: data.modo, modelo: data.modelo }]);
-        
+
         if (typewriterIntervalRef.current) {
           clearInterval(typewriterIntervalRef.current);
         }
 
+        setIsTyping(true);
         typewriterIntervalRef.current = setInterval(() => {
+          charIndex = Math.min(charIndex + charsPerTick, responseText.length);
           setMessages((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
             if (last && last.role === 'assistant') {
-              last.content = responseText.slice(0, charIndex + 1);
+              last.content = responseText.slice(0, charIndex);
             }
             return next;
           });
-          charIndex++;
           if (charIndex >= responseText.length) {
             if (typewriterIntervalRef.current) {
               clearInterval(typewriterIntervalRef.current);
               typewriterIntervalRef.current = null;
             }
-            
+            setIsTyping(false);
+            inputRef.current?.focus();
+
             // Actualizar las fuentes al final de la animación
             setMessages((prev) => {
               const next = [...prev];
@@ -728,7 +826,7 @@ export default function ChatPage() {
               });
             }
           }
-        }, 12);
+        }, TICK_MS);
       }
     } catch (err: any) {
       console.error('Error al enviar mensaje:', err);
@@ -1209,18 +1307,23 @@ export default function ChatPage() {
           ) : (
             /* Lista de Mensajes del Chat */
             <div className="max-w-3xl mx-auto space-y-6">
-              {messages.map((msg, i) => (
-                <div 
-                  key={i} 
-                  className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              {messages.map((msg, i) => {
+                const isLastAssistant = msg.role === 'assistant' && i === messages.length - 1;
+                const typingThis = isTyping && isLastAssistant;
+                return (
+                <div
+                  key={i}
+                  className={`flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   {msg.role !== 'user' && (
-                    <div className="w-8 h-8 rounded-lg bg-accent-violet/10 border border-accent-violet/30 flex items-center justify-center text-accent-cyan font-bold text-xs shrink-0 select-none">
-                      G
+                    <div className={`w-8 h-8 rounded-lg bg-gradient-to-br from-accent-violet/25 to-accent-cyan/15 border border-accent-violet/40 flex items-center justify-center shrink-0 select-none transition-shadow ${
+                      typingThis ? 'shadow-[0_0_14px_rgba(6,182,212,0.35)]' : 'shadow-[0_0_8px_rgba(139,92,246,0.15)]'
+                    }`}>
+                      <Sparkles className="w-4 h-4 text-accent-cyan" />
                     </div>
                   )}
 
-                  <div 
+                  <div
                     className={`max-w-[85%] rounded-xl p-4 text-sm leading-relaxed ${
                       msg.role === 'user'
                         ? 'bg-gradient-to-br from-accent-violet/25 to-slate-900 border border-accent-violet/30 text-white rounded-br-none'
@@ -1230,6 +1333,7 @@ export default function ChatPage() {
                     {msg.role === 'assistant' ? (
                       <div>
                         <div className="chat-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                        {typingThis && <span className="typing-cursor" />}
                         {msg.fuentes && msg.fuentes.length > 0 && (
                           <div className="sources-panel">
                             <div className="flex items-center gap-1.5 mb-2">
@@ -1258,6 +1362,36 @@ export default function ChatPage() {
                             </div>
                           </div>
                         )}
+                        {!typingThis && msg.content && (
+                          <div className="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-slate-800/40">
+                            {msg.modelo && (
+                              <span className="text-[9px] font-mono text-slate-600 select-none">
+                                {msg.modelo}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => handleCopyMessage(i, msg.content)}
+                              title="Copiar respuesta"
+                              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono border transition-all cursor-pointer ${
+                                copiedIdx === i
+                                  ? 'text-emerald-400 border-emerald-500/30 bg-emerald-950/20'
+                                  : 'text-slate-500 border-transparent hover:text-accent-cyan hover:border-slate-800 hover:bg-slate-900/60'
+                              }`}
+                            >
+                              {copiedIdx === i ? (
+                                <>
+                                  <Check className="w-3 h-3" />
+                                  Copiado
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  Copiar
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       msg.content
@@ -1270,13 +1404,14 @@ export default function ChatPage() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
               
               {/* Spinner de enviando */}
               {sending && (
-                <div className="flex gap-4 justify-start">
-                  <div className="w-8 h-8 rounded-lg bg-accent-violet/10 border border-accent-violet/30 flex items-center justify-center text-accent-cyan font-bold text-xs shrink-0 animate-pulse">
-                    G
+                <div className="flex gap-4 justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent-violet/25 to-accent-cyan/15 border border-accent-violet/40 flex items-center justify-center shrink-0 animate-pulse shadow-[0_0_14px_rgba(139,92,246,0.3)]">
+                    <Sparkles className="w-4 h-4 text-accent-cyan" />
                   </div>
                   <div className="glass-panel text-slate-400 border border-slate-800/80 rounded-xl rounded-bl-none p-4 text-sm flex items-center gap-2.5">
                     <div className="flex gap-1.5">
@@ -1284,10 +1419,8 @@ export default function ChatPage() {
                       <div className="thinking-dot" />
                       <div className="thinking-dot" />
                     </div>
-                    <span className="font-mono text-xs">
-                      {searchModo === 'completo' 
-                        ? 'Buscando en la web, leyendo páginas y sintetizando con IA...'
-                        : 'Búsqueda rápida en la web...'}
+                    <span key={sendingPhase} className="font-mono text-xs animate-in fade-in duration-500">
+                      {SENDING_PHASES[searchModo][Math.min(sendingPhase, SENDING_PHASES[searchModo].length - 1)]}
                     </span>
                   </div>
                 </div>
@@ -1302,16 +1435,18 @@ export default function ChatPage() {
           <form onSubmit={handleSendMessage} className="max-w-3xl mx-auto relative flex gap-2">
             
             <input
+              ref={inputRef}
               type="text"
               value={inputMsg}
               onChange={(e) => setInputMsg(e.target.value)}
               disabled={sending || credits <= 0}
+              autoFocus
               placeholder={
-                credits <= 0 
-                  ? "❌ Sin créditos. Hazte Pro para continuar..." 
+                credits <= 0
+                  ? "❌ Sin créditos. Hazte Pro para continuar..."
                   : "Pregunta sobre el Lore de un personaje o el Meta actual..."
               }
-              className="flex-1 py-3.5 pl-4 pr-12 rounded-xl bg-slate-950/80 border border-slate-800 text-sm placeholder-slate-500 text-white focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="flex-1 py-3.5 pl-4 pr-12 rounded-xl bg-slate-950/80 border border-slate-800 text-sm placeholder-slate-500 text-white focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_18px_rgba(6,182,212,0.12)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             />
             
             <button
