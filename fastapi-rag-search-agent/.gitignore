@@ -1,0 +1,13 @@
+.env
+.env.local
+.env.*
+
+
+venv/
+.venv/
+env/
+
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
